@@ -392,6 +392,75 @@ async def _check_application_statuses_async() -> dict:
     return {"updated": updated}
 
 
+@shared_task(name="app.workers.tasks.batch_auto_apply_task")
+def batch_auto_apply_task() -> dict:
+    """Dispatch auto_apply_task for all discovered listings, respecting rate limits."""
+    return _run_async(_batch_auto_apply_async())
+
+
+async def _batch_auto_apply_async() -> dict:
+    dispatched = 0
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    async with _async_session() as db:
+        try:
+            # Get all discovered job listings
+            result = await db.execute(
+                select(JobListing).where(JobListing.status == "discovered")
+            )
+            listings = result.scalars().all()
+
+            # Group listings by user_id for rate-limit checking
+            user_counts: dict[str, int] = {}
+
+            for listing in listings:
+                uid = str(listing.user_id)
+
+                # Count today's applications for this user (cached per batch run)
+                if uid not in user_counts:
+                    count_result = await db.execute(
+                        select(Application).where(
+                            Application.user_id == listing.user_id,
+                            Application.created_at >= today_start,
+                        )
+                    )
+                    user_counts[uid] = len(count_result.scalars().all())
+
+                # Get user to check daily limit
+                user_result = await db.execute(select(User).where(User.id == listing.user_id))
+                user = user_result.scalar_one_or_none()
+                if not user:
+                    continue
+
+                daily_limit = user.daily_apply_limit if hasattr(user, "daily_apply_limit") and user.daily_apply_limit else settings.MAX_APPLICATIONS_PER_DAY
+                if user_counts[uid] >= daily_limit:
+                    continue
+
+                # Verify user has active credentials for this platform
+                cred_result = await db.execute(
+                    select(Credential).where(
+                        Credential.user_id == listing.user_id,
+                        Credential.platform == listing.platform,
+                        Credential.is_active == True,
+                    )
+                )
+                if not cred_result.scalar_one_or_none():
+                    continue
+
+                # Dispatch the individual apply task
+                auto_apply_task.delay(
+                    user_id=uid,
+                    job_listing_id=str(listing.id),
+                )
+                user_counts[uid] += 1
+                dispatched += 1
+
+        except Exception:
+            raise
+
+    return {"dispatched": dispatched}
+
+
 # ── Celery Beat schedule ─────────────────────────────────────────────────────
 
 from celery.schedules import crontab
@@ -404,9 +473,9 @@ celery_app.conf.beat_schedule = {
         "options": {"queue": "default"},
     },
     "auto-apply-every-30-mins": {
-        "task": "app.workers.tasks.auto_apply_task",
+        "task": "app.workers.tasks.batch_auto_apply_task",
         "schedule": crontab(minute="*/30"),
-        "options": {"queue": "apply_queue"},
+        "options": {"queue": "default"},
     },
     "cleanup-old-data-weekly": {
         "task": "app.workers.tasks.cleanup_old_listings_task",

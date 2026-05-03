@@ -1,6 +1,6 @@
 """initial schema
 
-Revision ID: 001
+Revision ID: 001_initial_schema
 Revises:
 Create Date: 2025-01-01 00:00:00.000000
 
@@ -11,14 +11,14 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision: str = "001"
+revision: str = "001_initial_schema"
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # ── users ────────────────────────────────────────────────────────────────
+    # ── 1. users ─────────────────────────────────────────────────────────────
     op.create_table(
         "users",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -33,7 +33,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_users_email", "users", ["email"])
 
-    # ── profiles ─────────────────────────────────────────────────────────────
+    # ── 2. profiles (user_profiles) ──────────────────────────────────────────
     op.create_table(
         "profiles",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -58,7 +58,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_profiles_user_id", "profiles", ["user_id"])
 
-    # ── credentials ──────────────────────────────────────────────────────────
+    # ── 3. credentials ───────────────────────────────────────────────────────
     op.create_table(
         "credentials",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -79,7 +79,7 @@ def upgrade() -> None:
     op.create_index("ix_credentials_user_id", "credentials", ["user_id"])
     op.create_index("ix_credentials_user_platform", "credentials", ["user_id", "platform"])
 
-    # ── resumes ──────────────────────────────────────────────────────────────
+    # ── 4. resumes ───────────────────────────────────────────────────────────
     op.create_table(
         "resumes",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -98,7 +98,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_resumes_user_id", "resumes", ["user_id"])
 
-    # ── job_searches ─────────────────────────────────────────────────────────
+    # ── 5. job_searches ──────────────────────────────────────────────────────
     op.create_table(
         "job_searches",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -126,7 +126,7 @@ def upgrade() -> None:
     op.create_index("ix_job_searches_user_id", "job_searches", ["user_id"])
     op.create_index("ix_job_searches_user_active", "job_searches", ["user_id", "is_active"])
 
-    # ── job_listings ─────────────────────────────────────────────────────────
+    # ── 6. job_listings ──────────────────────────────────────────────────────
     op.create_table(
         "job_listings",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -158,7 +158,7 @@ def upgrade() -> None:
     op.create_index("ix_job_listings_user_status", "job_listings", ["user_id", "status"])
     op.create_index("ix_job_listings_platform_extid", "job_listings", ["platform", "external_job_id"])
 
-    # ── applications ─────────────────────────────────────────────────────────
+    # ── 7. applications ──────────────────────────────────────────────────────
     op.create_table(
         "applications",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -195,7 +195,7 @@ def upgrade() -> None:
     op.create_index("ix_applications_status", "applications", ["status"])
     op.create_index("ix_applications_user_status", "applications", ["user_id", "status"])
 
-    # ── question_answers ─────────────────────────────────────────────────────
+    # ── 8. question_answers ──────────────────────────────────────────────────
     op.create_table(
         "question_answers",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -213,7 +213,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_question_answers_user_id", "question_answers", ["user_id"])
 
-    # ── usage_logs ───────────────────────────────────────────────────────────
+    # ── 9. usage_logs ────────────────────────────────────────────────────────
     op.create_table(
         "usage_logs",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
