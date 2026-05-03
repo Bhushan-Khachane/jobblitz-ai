@@ -77,7 +77,3 @@ app.include_router(applications.router, prefix="/api/v1")
 app.include_router(cover_letters.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 
-
-@app.get("/health")
-async def health():
-    return {"status": "ok", "version": "1.0.0"}
