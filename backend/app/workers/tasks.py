@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from celery import shared_task
 from sqlalchemy import select
@@ -311,3 +311,116 @@ def notify_user_task(user_id: str, message: str) -> dict:
     """Placeholder for user notification (email/push)."""
     # In production, integrate with email/SMS/push notification service
     return {"user_id": user_id, "message": message, "sent": True}
+
+
+@shared_task(name="app.workers.tasks.cleanup_old_listings_task")
+def cleanup_old_listings_task() -> dict:
+    """Delete job listings older than 30 days that were never applied to."""
+    return _run_async(_cleanup_old_listings_async())
+
+
+async def _cleanup_old_listings_async() -> dict:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    deleted = 0
+    async with _async_session() as db:
+        try:
+            result = await db.execute(
+                select(JobListing).where(
+                    JobListing.created_at < cutoff,
+                    JobListing.status == "discovered",
+                )
+            )
+            old_listings = result.scalars().all()
+
+            for listing in old_listings:
+                await db.delete(listing)
+                deleted += 1
+
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+
+    return {"deleted": deleted}
+
+
+@shared_task(name="app.workers.tasks.check_application_statuses_task")
+def check_application_statuses_task() -> dict:
+    """Check for stale pending/failed applications and mark them."""
+    return _run_async(_check_application_statuses_async())
+
+
+async def _check_application_statuses_async() -> dict:
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+    updated = 0
+    async with _async_session() as db:
+        try:
+            # Mark applications stuck in pending for > 48h as failed
+            result = await db.execute(
+                select(Application).where(
+                    Application.status == "pending",
+                    Application.created_at < stale_cutoff,
+                )
+            )
+            stale_apps = result.scalars().all()
+
+            for app in stale_apps:
+                app.status = "failed"
+                app.error_message = "Application timed out — no response after 48 hours"
+                updated += 1
+
+            # Mark applied applications with no status update for > 7 days
+            seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+            result2 = await db.execute(
+                select(Application).where(
+                    Application.status == "submitted",
+                    Application.applied_at < seven_days_ago,
+                )
+            )
+            old_submitted = result2.scalars().all()
+
+            for app in old_submitted:
+                app.status = "rejected"
+                app.error_message = "Auto-marked: no update received within 7 days"
+                updated += 1
+
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+
+    return {"updated": updated}
+
+
+# ── Celery Beat schedule ─────────────────────────────────────────────────────
+
+from celery.schedules import crontab
+from app.workers.celery_app import celery_app
+
+celery_app.conf.beat_schedule = {
+    "discover-jobs-every-2-hours": {
+        "task": "app.workers.tasks.discover_jobs_task",
+        "schedule": crontab(minute=0, hour="*/2"),
+        "options": {"queue": "default"},
+    },
+    "auto-apply-every-30-mins": {
+        "task": "app.workers.tasks.auto_apply_task",
+        "schedule": crontab(minute="*/30"),
+        "options": {"queue": "apply_queue"},
+    },
+    "cleanup-old-data-weekly": {
+        "task": "app.workers.tasks.cleanup_old_listings_task",
+        "schedule": crontab(hour=2, minute=0, day_of_week=0),
+        "options": {"queue": "default"},
+    },
+    "check-application-status-daily": {
+        "task": "app.workers.tasks.check_application_statuses_task",
+        "schedule": crontab(hour=9, minute=0),
+        "options": {"queue": "default"},
+    },
+}
+
+celery_app.conf.task_routes = {
+    "app.workers.tasks.auto_apply_task": {"queue": "apply_queue"},
+    "app.workers.tasks.*": {"queue": "default"},
+}

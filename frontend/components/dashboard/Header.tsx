@@ -11,9 +11,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/useAuth";
-import { openMobileSidebar } from "./Sidebar";
 
-export default function Header() {
+export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user, logout } = useAuth();
   const initials = user?.full_name
     ? user.full_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
@@ -24,7 +23,7 @@ export default function Header() {
       <div className="flex items-center justify-between">
         {/* Left: mobile menu + search */}
         <div className="flex items-center gap-3">
-          <button onClick={openMobileSidebar} className="lg:hidden p-2 text-gray-500 hover:text-gray-700">
+          <button onClick={onMenuClick} className="lg:hidden p-2 text-gray-500 hover:text-gray-700">
             <Menu className="w-5 h-5" />
           </button>
           <div className="hidden sm:flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 w-64">

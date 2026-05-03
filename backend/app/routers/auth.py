@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, status
 from jose import jwt
 from passlib.context import CryptContext
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,8 +19,21 @@ from app.dependencies import decode_token, get_current_user
 from app.models import User
 from app.schemas import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse, UserResponse
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+# ── Password-reset schemas ───────────────────────────────────────────────────
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8)
 
 
 def _create_access_token(user_id: uuid.UUID) -> str:
@@ -96,3 +113,88 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 async def me(user: User = Depends(get_current_user)):
     return user
+
+
+# ── Password reset ───────────────────────────────────────────────────────────
+
+async def _get_redis() -> aioredis.Redis:
+    return aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+
+
+@router.post("/forgot-password", status_code=status.HTTP_200_OK)
+async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == body.email))
+    user = result.scalar_one_or_none()
+
+    # Always return same message to avoid email enumeration
+    response = {"message": "If that email exists, a reset link has been sent."}
+
+    if not user:
+        return response
+
+    token = secrets.token_urlsafe(32)
+
+    try:
+        redis = await _get_redis()
+        await redis.set(f"pwd_reset:{token}", str(user.id), ex=900)
+        await redis.close()
+    except Exception as exc:
+        logger.warning("Failed to store password reset token in Redis: %s", exc)
+        # Still return success — don't leak infrastructure errors
+
+    logger.info("Password reset token for %s: %s", body.email, token)
+    return response
+
+
+@router.post("/reset-password", status_code=status.HTTP_200_OK)
+async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        redis = await _get_redis()
+        user_id_str = await redis.get(f"pwd_reset:{body.token}")
+    except Exception as exc:
+        logger.warning("Redis error during password reset: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to process reset request. Please try again.",
+        )
+
+    if not user_id_str:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token",
+        )
+
+    try:
+        user_id = uuid.UUID(user_id_str)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token",
+        )
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        # Clean up stale token
+        try:
+            await redis.delete(f"pwd_reset:{body.token}")
+            await redis.close()
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token",
+        )
+
+    user.hashed_password = pwd_context.hash(body.new_password)
+    await db.commit()
+
+    # Delete the token so it can't be reused
+    try:
+        await redis.delete(f"pwd_reset:{body.token}")
+        await redis.close()
+    except Exception:
+        pass
+
+    return {"message": "Password reset successful. Please login."}

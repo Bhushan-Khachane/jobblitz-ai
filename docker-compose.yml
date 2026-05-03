@@ -35,42 +35,72 @@ services:
       - "8000:8000"
     env_file:
       - ./backend/.env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - uploads:/app/uploads
-      - screenshots:/app/screenshots
+      - uploads_data:/app/uploads
+      - screenshots_data:/app/screenshots
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./frontend/.env
+    depends_on:
+      - backend
+    restart: unless-stopped
 
   celery_worker:
     build: ./backend
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4 -Q default,apply_queue
     env_file:
       - ./backend/.env
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - postgres
+      - redis
+      - backend
     volumes:
-      - uploads:/app/uploads
-      - screenshots:/app/screenshots
+      - ./backend:/app
+      - uploads_data:/app/uploads
+      - screenshots_data:/app/screenshots
+    restart: unless-stopped
 
   celery_beat:
     build: ./backend
-    command: celery -A app.workers.celery_app beat --loglevel=info
+    command: celery -A app.workers.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
     env_file:
       - ./backend/.env
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+      - celerybeat_data:/app/celerybeat-schedule
+    restart: unless-stopped
+
+  flower:
+    image: mher/flower:2.0
+    command: celery flower --broker=redis://redis:6379/0 --port=5555
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    restart: unless-stopped
 
 volumes:
   pgdata:
   redisdata:
-  uploads:
-  screenshots:
+  uploads_data:
+  screenshots_data:
+  celerybeat_data:

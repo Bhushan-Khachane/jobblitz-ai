@@ -25,16 +25,17 @@ const nav = [
   { href: "/billing", label: "Billing", icon: CreditCard },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileOpen = isOpen ?? false;
+  const closeMobile = onClose ?? (() => {});
 
   return (
     <>
       {/* Mobile overlay */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setMobileOpen(false)} />
+        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={closeMobile} />
       )}
 
       {/* Sidebar */}
@@ -61,7 +62,7 @@ export default function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setMobileOpen(false)}
+                onClick={() => closeMobile()}
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                   active
@@ -85,12 +86,7 @@ export default function Sidebar() {
         </button>
       </aside>
 
-      {/* Mobile hamburger trigger (rendered in Header) */}
-      <button id="sidebar-toggle" className="hidden" onClick={() => setMobileOpen(true)} />
+      {/* Mobile hamburger trigger (rendered via layout) */}
     </>
   );
-}
-
-export function openMobileSidebar() {
-  document.getElementById("sidebar-toggle")?.click();
 }
