@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+node_modules/
+.next/
+.vercel/
+uploads/
+screenshots/
+.DS_Store
+*.tar.gz
