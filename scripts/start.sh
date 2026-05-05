@@ -15,15 +15,15 @@ if [ ! -f frontend/.env ]; then
 fi
 
 # Pull latest images
-docker-compose pull redis postgres
+docker compose pull redis postgres
 
 # Build services
 echo "🔨 Building services..."
-docker-compose build --parallel
+docker compose build --parallel
 
 # Start infra first
 echo "🗄️ Starting database and Redis..."
-docker-compose up -d postgres redis
+docker compose up -d postgres redis
 
 # Wait for DB to be ready
 echo "⏳ Waiting for database..."
@@ -31,16 +31,16 @@ sleep 5
 
 # Run migrations
 echo "📦 Running database migrations..."
-docker-compose run --rm backend alembic upgrade head
+docker compose run --rm backend alembic upgrade head
 
 # Start all services
 echo "▶️ Starting all services..."
-docker-compose up -d
+docker compose up -d
 
 echo ""
 echo "✅ JobBlitz AI is running!"
-echo "   Frontend:  http://localhost:3000"
+echo "   Frontend:  http://localhost:3001"
 echo "   Backend:   http://localhost:8000"
 echo "   API Docs:  http://localhost:8000/docs"
-echo "   Flower:    http://localhost:5555"
+echo "   Flower:    http://localhost:5556"
 echo "   Health:    http://localhost:8000/health/detailed"

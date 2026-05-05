@@ -19,16 +19,6 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_soft_time_limit=300,
     task_time_limit=600,
-    beat_schedule={
-        "discover-jobs-every-2h": {
-            "task": "app.workers.tasks.discover_jobs_task",
-            "schedule": 7200.0,
-        },
-        "retry-failed-applications": {
-            "task": "app.workers.tasks.retry_failed_task",
-            "schedule": 3600.0,
-        },
-    },
 )
 
 celery_app.autodiscover_tasks(["app.workers"])

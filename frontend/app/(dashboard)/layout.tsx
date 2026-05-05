@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "@/hooks/useAuth";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import { AuthProvider } from "@/hooks/useAuth";
@@ -9,6 +10,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { isAuthenticated, isLoading } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -26,11 +28,10 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   // Auth guard
   useEffect(() => {
-    const token = localStorage.getItem("jb_access_token");
-    if (!token) {
+    if (!isLoading && !isAuthenticated) {
       router.push("/login");
     }
-  }, [router]);
+  }, [isLoading, isAuthenticated, router]);
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -46,6 +47,18 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   const closeSidebar = useCallback(() => {
     setIsSidebarOpen(false);
   }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">

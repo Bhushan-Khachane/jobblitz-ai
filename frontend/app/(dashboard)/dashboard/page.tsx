@@ -30,19 +30,23 @@ interface Application {
 export default function DashboardPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [recent, setRecent] = useState<Application[]>([]);
+  const [activeSearchCount, setActiveSearchCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [ovRes, appsRes] = await Promise.all([
+        const [ovRes, appsRes, searchRes] = await Promise.all([
           api.get("/analytics/overview"),
           api.get("/applications/", { params: { page: 1, page_size: 5 } }),
+          api.get("/job-searches/"),
         ]);
         setOverview(ovRes.data);
         setRecent(appsRes.data.items || []);
-      } catch {
-        // Use defaults
+        const active = (searchRes.data || []).filter((s: any) => s.is_active).length;
+        setActiveSearchCount(active);
+      } catch (e) {
+        console.error("Dashboard load error:", e);
       } finally {
         setLoading(false);
       }
@@ -93,10 +97,10 @@ export default function DashboardPage() {
         />
         <StatCard
           title="Active Searches"
-          value={overview?.total_jobs_discovered || 0}
+          value={activeSearchCount}
           icon={Search}
           iconColor="bg-purple-50 text-purple-600"
-          change="jobs discovered"
+          change="running now"
           changeType="neutral"
         />
         <StatCard

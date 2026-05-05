@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ class UserUpdate(BaseModel):
 class ProfileCreate(BaseModel):
     headline: str | None = None
     summary: str | None = None
-    skills: dict | None = None
+    skills: list[str] | None = None
     experience: dict | None = None
     education: dict | None = None
     certifications: dict | None = None
@@ -104,6 +104,11 @@ class ResumeResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ResumeUpdate(BaseModel):
+    title: str | None = None
+    is_default: bool | None = None
+
+
 class ResumeTailorRequest(BaseModel):
     job_description: str = Field(min_length=10)
     job_title: str | None = None
@@ -127,6 +132,14 @@ class JobSearchCreate(BaseModel):
     salary_min_lpa: float | None = None
     salary_max_lpa: float | None = None
     extra_filters: dict | None = None
+    auto_match: bool = False
+
+    @field_validator("salary_min_lpa", "salary_max_lpa", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v):
+        if v == "" or v is None:
+            return None
+        return v
 
 
 class JobSearchUpdate(BaseModel):
@@ -140,12 +153,21 @@ class JobSearchUpdate(BaseModel):
     salary_max_lpa: float | None = None
     extra_filters: dict | None = None
     is_active: bool | None = None
+    auto_match: bool | None = None
+
+    @field_validator("salary_min_lpa", "salary_max_lpa", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v):
+        if v == "" or v is None:
+            return None
+        return v
 
 
 class JobSearchResponse(JobSearchCreate):
     id: uuid.UUID
     user_id: uuid.UUID
     is_active: bool
+    auto_match: bool
     last_run_at: datetime | None
     created_at: datetime
 
@@ -165,6 +187,7 @@ class JobListingResponse(BaseModel):
     salary_info: str | None
     posted_date: str | None
     status: str
+    match_score: float | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

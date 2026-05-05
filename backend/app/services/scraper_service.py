@@ -18,20 +18,29 @@ async def _random_delay(low: float = 1.0, high: float = 3.0) -> None:
     await asyncio.sleep(random.uniform(low, high))
 
 
-async def _create_context(playwright, user_data_dir: str | Path) -> tuple:
+async def _create_context(playwright, user_data_dir: str | Path, browser: str = "chromium") -> tuple:
     """Create a persistent browser context with stealth and random viewport."""
     width = random.randint(VIEWPORT_MIN, VIEWPORT_MAX)
     height = random.randint(800, 1080)
-    context = await playwright.chromium.launch_persistent_context(
-        user_data_dir=str(user_data_dir),
-        headless=True,
-        viewport={"width": width, "height": height},
-        user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        ),
-        args=["--disable-blink-features=AutomationControlled"],
+    user_agent = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
+    if browser == "firefox":
+        context = await playwright.firefox.launch_persistent_context(
+            user_data_dir=str(user_data_dir),
+            headless=True,
+            viewport={"width": width, "height": height},
+            user_agent=user_agent,
+        )
+    else:
+        context = await playwright.chromium.launch_persistent_context(
+            user_data_dir=str(user_data_dir),
+            headless=True,
+            viewport={"width": width, "height": height},
+            user_agent=user_agent,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
     return context, width, height
 
 
@@ -114,9 +123,11 @@ async def scrape_naukri_jobs(
     max_results: int = 25,
     user_data_dir: str | Path | None = None,
 ) -> list[dict]:
-    """Scrape Naukri job listings via public search page."""
+    """Scrape Naukri job listings via public search page using Firefox."""
     results: list[dict] = []
-    slug = keywords.replace(" ", "-").lower()
+    # Naukri URL slugs only support a single keyword phrase; use the first one
+    first_kw = keywords.split(",")[0].strip()
+    slug = re.sub(r"[^a-z0-9-]", "", first_kw.replace(" ", "-").lower())
     loc_slug = (location or "").replace(" ", "-").lower()
     exp_map = {"fresher": "0", "1": "1", "2": "2", "3": "3", "5": "5", "7": "7", "10": "10"}
     exp = exp_map.get(experience_level or "", "0")
@@ -129,21 +140,22 @@ async def scrape_naukri_jobs(
     data_dir = Path(user_data_dir) if user_data_dir else Path(settings.UPLOAD_DIR) / ".naukri_ctx"
 
     async with async_playwright() as pw:
-        context, _, _ = await _create_context(pw, data_dir)
+        # Use Firefox to avoid Akamai bot detection on Naukri
+        context, _, _ = await _create_context(pw, data_dir, browser="firefox")
         try:
             page: Page = await context.new_page()
-            await stealth_async(page)
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await page.goto(url, wait_until="networkidle", timeout=30000)
             await _random_delay(2, 4)
 
-            cards = await page.query_selector_all(".jobTuple, .srp-jobtuple-wrapper, article.jobTuple")
+            cards = await page.query_selector_all(".srp-jobtuple-wrapper")
             for card in cards[:max_results]:
                 try:
-                    title_el = await card.query_selector("a.title, .jobTupleHeader a, a[title]")
-                    company_el = await card.query_selector("a.subTitle, .companyInfo a, .comp-name")
-                    location_el = await card.querySelector(".location, .locWdth, .jobTupleFooter .location")
-                    desc_el = await card.query_selector(".job-description, .jobTupleFooter .description")
-                    salary_el = await card.query_selector(".salary, .sal")
+                    title_el = await card.query_selector("a.title")
+                    company_el = await card.query_selector("a.comp-name")
+                    location_el = await card.query_selector("span.locWdth")
+                    desc_el = await card.query_selector(".job-desc")
+                    salary_el = await card.query_selector(".sal")
+                    posted_el = await card.query_selector(".job-post-day")
 
                     title = ""
                     href = ""
@@ -151,17 +163,23 @@ async def scrape_naukri_jobs(
                         title = (await title_el.get_attribute("title")) or (await title_el.inner_text())
                         title = title.strip()
                         href = await title_el.get_attribute("href") or ""
+
                     company = ""
                     if company_el:
                         company = (await company_el.get_attribute("title")) or (await company_el.inner_text())
                         company = company.strip()
-                    loc = (await location_el.inner_text()).strip() if location_el else ""
+
+                    loc = (await location_el.get_attribute("title")) if location_el else ""
+                    if not loc and location_el:
+                        loc = (await location_el.inner_text()).strip()
+
                     desc = (await desc_el.inner_text()).strip() if desc_el else ""
                     salary = (await salary_el.inner_text()).strip() if salary_el else ""
+                    posted = (await posted_el.inner_text()).strip() if posted_el else ""
 
                     ext_id = ""
                     if href:
-                        m = re.search(r"/(\d{6,})", href)
+                        m = re.search(r"[-/](\d{6,})(?:\?|$)", href)
                         if m:
                             ext_id = m.group(1)
 
@@ -172,7 +190,7 @@ async def scrape_naukri_jobs(
                         "description": desc,
                         "apply_url": href if href.startswith("http") else f"https://www.naukri.com{href}",
                         "external_job_id": ext_id,
-                        "posted_date": "",
+                        "posted_date": posted,
                         "salary_info": salary,
                         "platform": "naukri",
                     })

@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import Resume, User
-from app.schemas import ResumeResponse, ResumeTailorRequest, ResumeTailorResponse
-from app.services.ai_service import resume_tailor
+from app.models import Profile, Resume, User
+from app.schemas import ResumeResponse, ResumeTailorRequest, ResumeTailorResponse, ResumeUpdate
+from app.services.ai_service import extract_resume_profile, resume_tailor
 from app.services.pdf_service import generate_tailored_pdf, parse_pdf
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
@@ -65,6 +65,16 @@ async def upload_resume(
     db.add(resume)
     await db.commit()
     await db.refresh(resume)
+
+    # Extract structured profile from resume text
+    if parsed:
+        try:
+            extracted = await extract_resume_profile(parsed)
+            if extracted:
+                await _upsert_profile(db, user.id, extracted)
+        except Exception:
+            pass  # Non-blocking: don't fail upload if extraction fails
+
     return resume
 
 
@@ -102,6 +112,87 @@ async def tailor_resume(
     generate_tailored_pdf(tailored, pdf_path)
 
     return ResumeTailorResponse(tailored_text=tailored, tailored_pdf_path=str(pdf_path))
+
+
+@router.put("/{resume_id}", response_model=ResumeResponse)
+async def update_resume(
+    resume_id: uuid.UUID,
+    body: ResumeUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Resume).where(Resume.id == resume_id, Resume.user_id == user.id))
+    resume = result.scalar_one_or_none()
+    if not resume:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+
+    data = body.model_dump(exclude_unset=True)
+    for k, v in data.items():
+        setattr(resume, k, v)
+
+    if body.is_default:
+        # Unset other defaults
+        result = await db.execute(select(Resume).where(Resume.user_id == user.id, Resume.is_default == True, Resume.id != resume_id))
+        for r in result.scalars().all():
+            r.is_default = False
+
+    await db.commit()
+    await db.refresh(resume)
+    return resume
+
+
+@router.post("/{resume_id}/analyze", status_code=status.HTTP_200_OK)
+async def analyze_resume(
+    resume_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-run AI extraction on an existing resume and update the user's Profile."""
+    result = await db.execute(select(Resume).where(Resume.id == resume_id, Resume.user_id == user.id))
+    resume = result.scalar_one_or_none()
+    if not resume:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+
+    text = resume.parsed_text or ""
+    if not text and resume.file_path:
+        try:
+            text = parse_pdf(resume.file_path)
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not parse resume PDF")
+
+    if not text:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Resume has no extractable text")
+
+    extracted = await extract_resume_profile(text)
+    if not extracted:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not extract profile from resume")
+
+    await _upsert_profile(db, user.id, extracted)
+    return {"extracted": extracted}
+
+
+async def _upsert_profile(db: AsyncSession, user_id: uuid.UUID, data: dict) -> None:
+    """Create or update the user's Profile with extracted resume data."""
+    result = await db.execute(select(Profile).where(Profile.user_id == user_id))
+    profile = result.scalar_one_or_none()
+    if not profile:
+        profile = Profile(user_id=user_id)
+        db.add(profile)
+
+    if data.get("headline"):
+        profile.headline = data["headline"]
+    if data.get("summary"):
+        profile.summary = data["summary"]
+    if data.get("skills"):
+        profile.skills = data["skills"]
+    if data.get("job_titles"):
+        profile.preferred_job_titles = data["job_titles"]
+    if data.get("experience"):
+        profile.experience = data["experience"]
+    if data.get("education"):
+        profile.education = data["education"]
+
+    await db.commit()
 
 
 @router.delete("/{resume_id}", status_code=status.HTTP_204_NO_CONTENT)

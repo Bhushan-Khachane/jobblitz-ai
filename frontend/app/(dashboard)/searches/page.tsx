@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Plus, Pencil, Trash2, Globe, ToggleLeft, ToggleRight } from "lucide-react";
+import { Plus, Pencil, Trash2, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import SearchForm from "@/components/dashboard/SearchForm";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
-import api from "@/lib/api";
+import api, { jobSearchAPI, credentialsAPI } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 
 interface JobSearch {
@@ -41,13 +41,18 @@ export default function SearchesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editItem, setEditItem] = useState<JobSearch | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasCredentials, setHasCredentials] = useState(true);
+  const [running, setRunning] = useState<string | null>(null);
+  const [triggerMsg, setTriggerMsg] = useState<string>("");
 
   const fetchSearches = useCallback(async () => {
     try {
-      const { data } = await api.get("/job-searches/");
+      const data = await jobSearchAPI.list();
       setSearches(data || []);
-    } catch {
-      // ignore
+    } catch (e: any) {
+      console.error(e);
+      setError(e.response?.data?.detail || "Failed to load searches");
     } finally {
       setLoading(false);
     }
@@ -57,19 +62,34 @@ export default function SearchesPage() {
     fetchSearches();
   }, [fetchSearches]);
 
+  useEffect(() => {
+    const loadCredentials = async () => {
+      try {
+        const creds = await credentialsAPI.list();
+        setHasCredentials((creds || []).length > 0);
+      } catch (e: any) {
+        console.error(e);
+        setHasCredentials(false);
+      }
+    };
+    loadCredentials();
+  }, []);
+
   const handleCreate = async (formData: any) => {
     setSaving(true);
+    setError(null);
     try {
       if (editItem) {
-        await api.put(`/job-searches/${editItem.id}`, formData);
+        await jobSearchAPI.update(editItem.id, formData);
       } else {
-        await api.post("/job-searches/", formData);
+        await jobSearchAPI.create(formData);
       }
       setDialogOpen(false);
       setEditItem(null);
       await fetchSearches();
     } catch (e: any) {
-      alert(e.response?.data?.detail || "Failed to save");
+      console.error(e);
+      setError(e.response?.data?.detail || "Failed to save search");
     } finally {
       setSaving(false);
     }
@@ -77,20 +97,24 @@ export default function SearchesPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this search?")) return;
+    setError(null);
     try {
-      await api.delete(`/job-searches/${id}`);
+      await jobSearchAPI.delete(id);
       await fetchSearches();
-    } catch {
-      alert("Failed to delete");
+    } catch (e: any) {
+      console.error(e);
+      setError(e.response?.data?.detail || "Failed to delete");
     }
   };
 
   const handleToggle = async (search: JobSearch) => {
+    setError(null);
     try {
-      await api.put(`/job-searches/${search.id}`, { is_active: !search.is_active });
+      await jobSearchAPI.toggle(search.id, search.is_active);
       await fetchSearches();
-    } catch {
-      // ignore
+    } catch (e: any) {
+      console.error(e);
+      setError(e.response?.data?.detail || "Failed to toggle search");
     }
   };
 
@@ -104,10 +128,49 @@ export default function SearchesPage() {
     setDialogOpen(true);
   };
 
+  const handleTrigger = async (id: string) => {
+    setRunning(id);
+    setTriggerMsg("");
+    try {
+      const { data } = await api.post(`/job-searches/${id}/trigger`);
+      setTriggerMsg(`✓ Discovery started! Task ID: ${data.task_id}`);
+      setTimeout(() => setTriggerMsg(""), 8000);
+    } catch (e: any) {
+      setTriggerMsg(e.response?.data?.detail || "Failed to trigger search");
+    } finally {
+      setRunning(null);
+    }
+  };
+
   if (loading) return <LoadingSpinner />;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+      {!hasCredentials && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
+          <span className="text-amber-500 text-xl">⚠️</span>
+          <div>
+            <p className="font-medium text-amber-800">Auto-apply is not active</p>
+            <p className="text-sm text-amber-700 mt-0.5">
+              You haven't linked your LinkedIn or Naukri account yet.{" "}
+              <a href="/profile" className="underline font-medium">Add credentials</a> to enable automatic job applications.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {triggerMsg && (
+        <div className={`p-3 rounded-lg text-sm border ${triggerMsg.startsWith("✓")
+          ? "bg-green-50 border-green-200 text-green-700"
+          : "bg-red-50 border-red-200 text-red-700"}`}>
+          {triggerMsg}
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-700 text-sm">{error}</div>
+      )}
+
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Job Searches</h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -182,6 +245,22 @@ export default function SearchesPage() {
                       <Switch checked={s.is_active} onCheckedChange={() => handleToggle(s)} />
                       <span className="text-xs text-gray-500">{s.is_active ? "Active" : "Paused"}</span>
                     </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={running === s.id || !s.is_active}
+                      onClick={() => handleTrigger(s.id)}
+                      className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                    >
+                      {running === s.id ? (
+                        <span className="flex items-center gap-1">
+                          <span className="animate-spin h-3 w-3 border-2 border-indigo-600 border-t-transparent rounded-full" />
+                          Running...
+                        </span>
+                      ) : (
+                        "▶ Run Now"
+                      )}
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => openEdit(s)}>
                       <Pencil className="w-4 h-4 text-gray-500" />
                     </Button>

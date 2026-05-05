@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     SCREENSHOT_DIR: str = "./screenshots"
     MAX_APPLICATIONS_PER_HOUR: int = 20
     MAX_APPLICATIONS_PER_DAY: int = 100
-    ALLOWED_ORIGINS: str = "http://localhost:3000"
+    MIN_MATCH_SCORE_TO_APPLY: float = 0.3
+    MIN_MATCH_SCORE_TO_SAVE: float = 0.2
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

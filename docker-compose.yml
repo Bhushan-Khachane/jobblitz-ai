@@ -38,6 +38,7 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,7 +52,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "3000:3000"
+      - "3001:3000"
     env_file:
       - ./frontend/.env
     depends_on:
@@ -75,7 +76,7 @@ services:
 
   celery_beat:
     build: ./backend
-    command: celery -A app.workers.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
+    command: celery -A app.workers.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler --schedule /data/celerybeat-schedule
     env_file:
       - ./backend/.env
     depends_on:
@@ -83,14 +84,14 @@ services:
       - redis
     volumes:
       - ./backend:/app
-      - celerybeat_data:/app/celerybeat-schedule
+      - celerybeat_data:/data
     restart: unless-stopped
 
   flower:
     image: mher/flower:2.0
-    command: celery flower --broker=redis://redis:6379/0 --port=5555
+    command: celery flower --broker=redis://redis:6379/0 --port=5556
     ports:
-      - "5555:5555"
+      - "5556:5556"
     depends_on:
       - redis
     environment:

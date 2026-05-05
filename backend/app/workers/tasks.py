@@ -4,7 +4,7 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from celery import shared_task
+from celery import shared_task, signals
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -13,17 +13,24 @@ from app.database import engine
 from app.models import Application, Credential, JobListing, JobSearch, Profile, Resume, UsageLog, User
 from app.services.scraper_service import scrape_linkedin_jobs, scrape_naukri_jobs
 from app.services.apply_service import apply_to_job
+from app.services.matching_service import match_job_to_resume
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 _async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 def _run_async(coro):
     """Run an async coroutine from a sync Celery task."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+    return asyncio.run(coro)
+
+
+@signals.worker_process_init.connect
+def init_worker(**kwargs):
+    """Dispose SQLAlchemy engine after fork to avoid connection-pool loop conflicts."""
+    asyncio.run(engine.dispose())
 
 
 @shared_task(name="app.workers.tasks.discover_jobs_task")
@@ -32,19 +39,70 @@ def discover_jobs_task() -> dict:
     return _run_async(_discover_jobs_async())
 
 
+def _build_keywords(profile: Profile | None, search_keywords: str) -> str:
+    """Build search keywords from resume profile data when auto_match is enabled.
+
+    Merges the user's original search keywords with job titles + key skills from
+    the profile. Falls back to original search keywords when no profile data
+    exists.
+    """
+    base = search_keywords.strip()
+    if not profile:
+        return base
+
+    parts = [base]
+    seen = {base.lower()}
+
+    if profile.preferred_job_titles:
+        for title in profile.preferred_job_titles[:2]:
+            t_lower = title.lower()
+            if t_lower not in seen:
+                seen.add(t_lower)
+                parts.append(title)
+
+    if profile.skills:
+        short_skills = [s for s in profile.skills if len(s.split()) <= 3][:3]
+        for skill in short_skills:
+            s_lower = skill.lower()
+            if s_lower not in seen:
+                seen.add(s_lower)
+                parts.append(skill)
+
+    return ", ".join(parts)
+
+
 async def _discover_jobs_async() -> dict:
-    discovered = 0
+    total_discovered = 0
+    await engine.dispose()
     async with _async_session() as db:
         # Get all active searches
         result = await db.execute(select(JobSearch).where(JobSearch.is_active == True))
         searches = result.scalars().all()
 
         for search in searches:
+            search_id = search.id
+            user_id = search.user_id
+            search_discovered = 0
             try:
+                # Load user's default resume and profile for auto-match mode
+                resume_text = ""
+                profile: Profile | None = None
+                if search.auto_match:
+                    prof_result = await db.execute(select(Profile).where(Profile.user_id == user_id))
+                    profile = prof_result.scalar_one_or_none()
+                    res_result = await db.execute(
+                        select(Resume).where(Resume.user_id == user_id, Resume.is_default == True)
+                    )
+                    resume = res_result.scalar_one_or_none()
+                    if resume and resume.parsed_text:
+                        resume_text = resume.parsed_text
+
+                keywords = _build_keywords(profile, search.keywords) if search.auto_match else search.keywords
+
                 jobs: list[dict] = []
                 if search.platform in ("linkedin", "both"):
                     linkedin_jobs = await scrape_linkedin_jobs(
-                        keywords=search.keywords,
+                        keywords=keywords,
                         location=search.location,
                         experience_level=search.experience_level,
                         remote_only=search.remote_only,
@@ -53,7 +111,7 @@ async def _discover_jobs_async() -> dict:
 
                 if search.platform in ("naukri", "both"):
                     naukri_jobs = await scrape_naukri_jobs(
-                        keywords=search.keywords,
+                        keywords=keywords,
                         location=search.location,
                         experience_level=search.experience_level,
                     )
@@ -72,6 +130,24 @@ async def _discover_jobs_async() -> dict:
                         if dup.scalar_one_or_none():
                             continue
 
+                    # Score the job against the resume
+                    match_score = None
+                    if resume_text:
+                        match_score = match_job_to_resume(
+                            job_title=job_data.get("title", ""),
+                            job_description=job_data.get("description", ""),
+                            resume_text=resume_text,
+                            profile_skills=profile.skills if profile else None,
+                            profile_job_titles=profile.preferred_job_titles if profile else None,
+                        )
+                        # Skip low-match jobs
+                        if match_score is not None and match_score < settings.MIN_MATCH_SCORE_TO_SAVE:
+                            logger.debug(
+                                f"Skipped low-match job '{job_data.get('title')}' "
+                                f"score={match_score} for search {search_id}"
+                            )
+                            continue
+
                     listing = JobListing(
                         user_id=search.user_id,
                         job_search_id=search.id,
@@ -85,9 +161,11 @@ async def _discover_jobs_async() -> dict:
                         salary_info=job_data.get("salary_info"),
                         posted_date=job_data.get("posted_date"),
                         status="discovered",
+                        match_score=match_score,
                     )
                     db.add(listing)
-                    discovered += 1
+                    search_discovered += 1
+                    total_discovered += 1
 
                 search.last_run_at = datetime.now(timezone.utc)
                 await db.commit()
@@ -96,16 +174,25 @@ async def _discover_jobs_async() -> dict:
                 log = UsageLog(
                     user_id=search.user_id,
                     action="discover",
-                    details={"search_id": str(search.id), "found": len(jobs)},
+                    details={
+                        "search_id": str(search.id),
+                        "found": len(jobs),
+                        "saved": search_discovered,
+                        "keywords": keywords,
+                    },
                 )
                 db.add(log)
                 await db.commit()
 
-            except Exception:
+            except Exception as e:
                 await db.rollback()
+                logger.error(
+                    f"Discovery failed for search {search_id} (user {user_id}): {e}",
+                    exc_info=True,
+                )
                 continue
 
-    return {"discovered": discovered}
+    return {"discovered": total_discovered}
 
 
 @shared_task(name="app.workers.tasks.auto_apply_task")
@@ -115,6 +202,7 @@ def auto_apply_task(user_id: str, job_listing_id: str, resume_id: str | None = N
 
 
 async def _auto_apply_async(user_id: str, job_listing_id: str, resume_id: str | None) -> dict:
+    await engine.dispose()
     uid = uuid.UUID(user_id)
     lid = uuid.UUID(job_listing_id)
 
@@ -155,7 +243,7 @@ async def _auto_apply_async(user_id: str, job_listing_id: str, resume_id: str | 
             "last_name": " ".join(user.full_name.split()[1:]) if user.full_name and len(user.full_name.split()) > 1 else "",
             "headline": profile.headline or "" if profile else "",
             "summary": profile.summary or "" if profile else "",
-            "skills": profile.skills or {} if profile else {},
+            "skills": profile.skills or [] if profile else [],
             "experience": profile.experience or {} if profile else {},
             "education": profile.education or {} if profile else {},
         }
@@ -200,7 +288,12 @@ async def _auto_apply_async(user_id: str, job_listing_id: str, resume_id: str | 
             application.status = "submitted"
             application.applied_at = datetime.now(timezone.utc)
         else:
-            if application.retry_count < 1:
+            # External apply jobs are not failures — just skip them
+            if error and "external apply" in error.lower():
+                application.status = "rejected"
+                application.error_message = error
+                listing.status = "skipped"
+            elif application.retry_count < 1:
                 application.retry_count += 1
                 application.error_message = error
             else:
@@ -223,6 +316,7 @@ def retry_failed_task() -> dict:
 
 async def _retry_failed_async() -> dict:
     retried = 0
+    await engine.dispose()
     async with _async_session() as db:
         result = await db.execute(
             select(Application).where(Application.status == "pending", Application.retry_count == 1)
@@ -263,7 +357,7 @@ async def _retry_failed_async() -> dict:
                     "last_name": " ".join(user.full_name.split()[1:]) if user.full_name and len(user.full_name.split()) > 1 else "",
                     "headline": profile.headline or "" if profile else "",
                     "summary": profile.summary or "" if profile else "",
-                    "skills": profile.skills or {} if profile else {},
+                    "skills": profile.skills or [] if profile else [],
                     "experience": profile.experience or {} if profile else {},
                     "education": profile.education or {} if profile else {},
                 }
@@ -299,8 +393,12 @@ async def _retry_failed_async() -> dict:
                 await db.commit()
                 retried += 1
 
-            except Exception:
+            except Exception as e:
                 await db.rollback()
+                logger.error(
+                    f"Retry failed for application {app.id} (listing {app.job_listing_id}): {e}",
+                    exc_info=True,
+                )
                 continue
 
     return {"retried": retried}
@@ -322,6 +420,7 @@ def cleanup_old_listings_task() -> dict:
 async def _cleanup_old_listings_async() -> dict:
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     deleted = 0
+    await engine.dispose()
     async with _async_session() as db:
         try:
             result = await db.execute(
@@ -337,8 +436,9 @@ async def _cleanup_old_listings_async() -> dict:
                 deleted += 1
 
             await db.commit()
-        except Exception:
+        except Exception as e:
             await db.rollback()
+            logger.error(f"Cleanup old listings failed: {e}", exc_info=True)
             raise
 
     return {"deleted": deleted}
@@ -353,6 +453,7 @@ def check_application_statuses_task() -> dict:
 async def _check_application_statuses_async() -> dict:
     stale_cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
     updated = 0
+    await engine.dispose()
     async with _async_session() as db:
         try:
             # Mark applications stuck in pending for > 48h as failed
@@ -385,8 +486,9 @@ async def _check_application_statuses_async() -> dict:
                 updated += 1
 
             await db.commit()
-        except Exception:
+        except Exception as e:
             await db.rollback()
+            logger.error(f"Check application statuses failed: {e}", exc_info=True)
             raise
 
     return {"updated": updated}
@@ -401,12 +503,15 @@ def batch_auto_apply_task() -> dict:
 async def _batch_auto_apply_async() -> dict:
     dispatched = 0
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-
+    await engine.dispose()
     async with _async_session() as db:
         try:
-            # Get all discovered job listings
+            # Get discovered job listings with sufficient match score
             result = await db.execute(
-                select(JobListing).where(JobListing.status == "discovered")
+                select(JobListing).where(
+                    JobListing.status == "discovered",
+                    JobListing.match_score >= settings.MIN_MATCH_SCORE_TO_APPLY,
+                )
             )
             listings = result.scalars().all()
 
@@ -455,7 +560,8 @@ async def _batch_auto_apply_async() -> dict:
                 user_counts[uid] += 1
                 dispatched += 1
 
-        except Exception:
+        except Exception as e:
+            logger.error(f"Batch auto-apply dispatch failed: {e}", exc_info=True)
             raise
 
     return {"dispatched": dispatched}

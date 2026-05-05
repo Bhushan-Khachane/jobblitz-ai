@@ -15,7 +15,6 @@ const schema = z.object({
   keywords: z.string().min(1, "Keywords are required"),
   location: z.string().optional(),
   experience_level: z.string().optional(),
-  job_type: z.string().optional(),
   remote_only: z.boolean().default(false),
   salary_min_lpa: z.string().optional(),
   salary_max_lpa: z.string().optional(),

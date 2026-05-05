@@ -10,6 +10,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import JobSearch, User
 from app.schemas import JobSearchCreate, JobSearchResponse, JobSearchUpdate
+from app.workers.tasks import discover_jobs_task
 
 router = APIRouter(prefix="/job-searches", tags=["job_searches"])
 
@@ -86,3 +87,23 @@ async def delete_search(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job search not found")
     await db.delete(search)
     await db.commit()
+
+
+@router.post("/{search_id}/trigger", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_search(
+    search_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(JobSearch).where(JobSearch.id == search_id, JobSearch.user_id == user.id)
+    )
+    search = result.scalar_one_or_none()
+    if not search:
+        raise HTTPException(status_code=404, detail="Job search not found")
+    if not search.is_active:
+        raise HTTPException(status_code=400, detail="Search is paused. Enable it first.")
+
+    # Dispatch the task
+    task = discover_jobs_task.delay()
+    return {"message": "Job discovery triggered", "task_id": task.id}

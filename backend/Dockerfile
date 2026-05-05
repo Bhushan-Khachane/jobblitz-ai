@@ -19,6 +19,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     libasound2 \
     libatspi2.0-0 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxcursor1 \
+    libgtk-3-0 \
+    libpangocairo-1.0-0 \
+    libcairo-gobject2 \
+    libgdk-pixbuf-xlib-2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -26,9 +33,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers
-RUN playwright install chromium
-RUN playwright install-deps chromium
+# Install Playwright browsers (Chromium + Firefox)
+RUN playwright install chromium firefox
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-unifont || true
+RUN playwright install-deps chromium firefox || true
 
 COPY . .
 

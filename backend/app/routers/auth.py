@@ -137,12 +137,11 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
     try:
         redis = await _get_redis()
         await redis.set(f"pwd_reset:{token}", str(user.id), ex=900)
-        await redis.close()
     except Exception as exc:
         logger.warning("Failed to store password reset token in Redis: %s", exc)
         # Still return success — don't leak infrastructure errors
 
-    logger.info("Password reset token for %s: %s", body.email, token)
+    logger.info("Password reset requested for %s", body.email)
     return response
 
 
@@ -179,7 +178,6 @@ async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(
         # Clean up stale token
         try:
             await redis.delete(f"pwd_reset:{body.token}")
-            await redis.close()
         except Exception:
             pass
         raise HTTPException(
@@ -193,7 +191,6 @@ async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(
     # Delete the token so it can't be reused
     try:
         await redis.delete(f"pwd_reset:{body.token}")
-        await redis.close()
     except Exception:
         pass
 

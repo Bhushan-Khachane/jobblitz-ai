@@ -5,12 +5,14 @@ import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Save, Plus, X } from "lucide-react";
+import { Save, Plus, X, Eye, EyeOff, Shield, CheckCircle, ChevronDown, ChevronUp, Puzzle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import ResumeUploader from "@/components/dashboard/ResumeUploader";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import api from "@/lib/api";
@@ -35,6 +37,23 @@ export default function ProfilePage() {
   const [resumes, setResumes] = useState<any[]>([]);
   const [success, setSuccess] = useState("");
 
+  const [credentials, setCredentials] = useState<any[]>([]);
+  const [activeMethod, setActiveMethod] = useState<"cookie" | "password" | null>(null);
+  const [credForm, setCredForm] = useState<{
+    platform: string;
+    username: string;
+    password: string;
+    session_cookie: string;
+  }>({
+    platform: "linkedin",
+    username: "",
+    password: "",
+    session_cookie: "",
+  });
+  const [credSaving, setCredSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [credError, setCredError] = useState("");
+
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
   });
@@ -42,10 +61,11 @@ export default function ProfilePage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [userRes, profileRes, resumeRes] = await Promise.all([
+        const [userRes, profileRes, resumeRes, credRes] = await Promise.all([
           api.get("/users/me"),
           api.get("/users/me/profile").catch(() => ({ data: null })),
           api.get("/resumes/"),
+          api.get("/credentials/").catch(() => ({ data: [] })),
         ]);
         const user = userRes.data;
         const profile = profileRes.data;
@@ -62,6 +82,7 @@ export default function ProfilePage() {
           setSkills(Array.isArray(profile.skills) ? profile.skills : Object.keys(profile.skills));
         }
         setResumes(resumeRes.data || []);
+        setCredentials(credRes.data || []);
       } catch {
         // ignore
       } finally {
@@ -115,11 +136,69 @@ export default function ProfilePage() {
   };
 
   const toggleDefault = async (id: string) => {
-    // Toggle by re-uploading with is_default
     await api.put(`/resumes/${id}`, { is_default: true }).catch(() => {});
     const res = await api.get("/resumes/");
     setResumes(res.data || []);
   };
+
+  const handleAddCredential = async (method: "cookie" | "password") => {
+    setCredError("");
+    if (!credForm.username) {
+      setCredError("Email is required");
+      return;
+    }
+    if (method === "password" && !credForm.password) {
+      setCredError("Password is required");
+      return;
+    }
+    if (method === "cookie" && !credForm.session_cookie) {
+      setCredError("Session cookie is required");
+      return;
+    }
+    setCredSaving(true);
+    try {
+      const payload = {
+        platform: credForm.platform,
+        username: credForm.username,
+        password: method === "password" ? credForm.password : undefined,
+        session_cookie: method === "cookie" ? credForm.session_cookie : undefined,
+      };
+      await api.post("/credentials/", payload);
+      const res = await api.get("/credentials/");
+      setCredentials(res.data || []);
+      setCredForm({ platform: "linkedin", username: "", password: "", session_cookie: "" });
+      setActiveMethod(null);
+    } catch (e: any) {
+      setCredError(e.response?.data?.detail || "Failed to save credentials");
+    } finally {
+      setCredSaving(false);
+    }
+  };
+
+  const handleDeleteCredential = async (id: string) => {
+    if (!confirm("Remove this account?")) return;
+    try {
+      await api.delete(`/credentials/${id}`);
+      setCredentials(credentials.filter((c) => c.id !== id));
+    } catch {
+      alert("Failed to remove credential");
+    }
+  };
+
+  const handleToggleCredential = async (cred: any) => {
+    try {
+      await api.put(`/credentials/${cred.id}`, { is_active: !cred.is_active });
+      const res = await api.get("/credentials/");
+      setCredentials(res.data || []);
+    } catch {}
+  };
+
+  const isLinked = (platform: string) => credentials.some((c) => c.platform === platform);
+  const getLinked = (platform: string) => credentials.find((c) => c.platform === platform);
+
+  const platformLabel = (p: string) => (p === "linkedin" ? "LinkedIn" : "Naukri");
+  const platformColor = (p: string) => (p === "linkedin" ? "bg-blue-600" : "bg-yellow-500");
+  const platformInitial = (p: string) => (p === "linkedin" ? "in" : "N");
 
   if (loading) return <LoadingSpinner />;
 
@@ -258,6 +337,279 @@ export default function ProfilePage() {
             </div>
           )}
           <ResumeUploader onUpload={handleResumeUpload} />
+        </CardContent>
+      </Card>
+
+      <Separator className="my-8" />
+
+      {/* Linked Accounts */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="w-5 h-5 text-indigo-600" />
+            Linked Accounts
+          </CardTitle>
+          <p className="text-sm text-gray-500 mt-1">
+            Connect your LinkedIn and Naukri accounts to enable automatic job applications.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+
+          {/* Connected accounts */}
+          {credentials.length > 0 && (
+            <div className="space-y-3">
+              {credentials.map((cred: any) => (
+                <div key={cred.id} className="flex items-center justify-between p-4 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${platformColor(cred.platform)}`}>
+                      {platformInitial(cred.platform)}
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900 capitalize">{platformLabel(cred.platform)}</p>
+                      <p className="text-sm text-gray-500">{cred.username}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={cred.is_active}
+                        onCheckedChange={() => handleToggleCredential(cred)}
+                      />
+                      <span className={`text-xs font-medium ${cred.is_active ? "text-green-600" : "text-gray-400"}`}>
+                        {cred.is_active ? "Active" : "Paused"}
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDeleteCredential(cred.id)}
+                      className="text-red-400 hover:text-red-600 hover:bg-red-50"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {isLinked("linkedin") && isLinked("naukri") && (
+            <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex items-center gap-3">
+              <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+              <div>
+                <p className="font-medium">All accounts connected</p>
+                <p className="text-green-600/80">Auto-apply is fully enabled on both platforms.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Method 1: Browser Extension */}
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <div className="p-4 flex items-center justify-between bg-gray-50/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
+                  <Puzzle className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">Browser Extension</p>
+                  <p className="text-xs text-gray-500">Secure, reliable, and recommended</p>
+                </div>
+              </div>
+              <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Recommended</Badge>
+            </div>
+            <div className="p-4">
+              <p className="text-sm text-gray-600 mb-3">
+                Install the JobBlitz Chrome extension to connect your accounts securely. Your credentials never leave your browser.
+              </p>
+              <Button variant="outline" size="sm" disabled>
+                <Puzzle className="w-4 h-4 mr-2" />
+                Install Chrome Extension — Coming Soon
+              </Button>
+            </div>
+          </div>
+
+          {/* Method 2: Session Cookie */}
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setActiveMethod(activeMethod === "cookie" ? null : "cookie")}
+              className="w-full p-4 flex items-center justify-between bg-gray-50/50 hover:bg-gray-50 transition-colors text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+                  <Shield className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">Session Cookie</p>
+                  <p className="text-xs text-gray-500">Fast, no password needed</p>
+                </div>
+              </div>
+              {activeMethod === "cookie" ? (
+                <ChevronUp className="w-4 h-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              )}
+            </button>
+            {activeMethod === "cookie" && (
+              <div className="p-4 space-y-4">
+                {credError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{credError}</div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Platform</Label>
+                    <select
+                      className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      value={credForm.platform}
+                      onChange={(e) => setCredForm({ ...credForm, platform: e.target.value })}
+                    >
+                      <option value="linkedin">LinkedIn</option>
+                      <option value="naukri">Naukri</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Account Email</Label>
+                    <Input
+                      type="email"
+                      placeholder="you@email.com"
+                      value={credForm.username}
+                      onChange={(e) => setCredForm({ ...credForm, username: e.target.value })}
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label>Session Cookie</Label>
+                  <textarea
+                    rows={3}
+                    placeholder={`Paste your ${platformLabel(credForm.platform)} session cookie here...`}
+                    value={credForm.session_cookie}
+                    onChange={(e) => setCredForm({ ...credForm, session_cookie: e.target.value })}
+                    className="mt-1 flex w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700 space-y-1">
+                  <p className="font-medium">How to get your session cookie:</p>
+                  <ol className="list-decimal list-inside space-y-0.5">
+                    <li>Open {platformLabel(credForm.platform)} in your browser and log in.</li>
+                    <li>Open DevTools (F12) → Application → Cookies.</li>
+                    <li>
+                      Copy the value of{" "}
+                      <code className="bg-blue-100 px-1 rounded">{credForm.platform === "linkedin" ? "li_at" : "JSESSIONID"}</code>{" "}
+                      and paste it above.
+                    </li>
+                  </ol>
+                </div>
+                <Button
+                  type="button"
+                  onClick={() => handleAddCredential("cookie")}
+                  disabled={credSaving}
+                >
+                  {credSaving ? "Connecting..." : "Connect with Cookie"}
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Method 3: Password */}
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setActiveMethod(activeMethod === "password" ? null : "password")}
+              className="w-full p-4 flex items-center justify-between bg-gray-50/50 hover:bg-gray-50 transition-colors text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center">
+                  <Shield className="w-5 h-5 text-red-500" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">Password</p>
+                  <p className="text-xs text-gray-500">Last resort, higher ban risk</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge className="bg-red-100 text-red-700 hover:bg-red-100">Higher Ban Risk</Badge>
+                {activeMethod === "password" ? (
+                  <ChevronUp className="w-4 h-4 text-gray-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                )}
+              </div>
+            </button>
+            {activeMethod === "password" && (
+              <div className="p-4 space-y-4">
+                {credError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{credError}</div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Platform</Label>
+                    <select
+                      className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      value={credForm.platform}
+                      onChange={(e) => setCredForm({ ...credForm, platform: e.target.value })}
+                    >
+                      <option value="linkedin">LinkedIn</option>
+                      <option value="naukri">Naukri</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Account Email</Label>
+                    <Input
+                      type="email"
+                      placeholder="you@email.com"
+                      value={credForm.username}
+                      onChange={(e) => setCredForm({ ...credForm, username: e.target.value })}
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label>Password</Label>
+                  <div className="relative mt-1">
+                    <Input
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Your account password"
+                      value={credForm.password}
+                      onChange={(e) => setCredForm({ ...credForm, password: e.target.value })}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700 flex gap-2">
+                  <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>
+                    Using your password increases the chance of account restrictions. We strongly recommend using a dedicated job-search account.
+                    Your password is encrypted with AES-256 before storage.
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleAddCredential("password")}
+                  disabled={credSaving}
+                >
+                  {credSaving ? "Connecting..." : "Connect Account"}
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Security note */}
+          <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500 flex gap-2">
+            <Shield className="w-4 h-4 flex-shrink-0 mt-0.5 text-gray-400" />
+            <span>
+              JobBlitz uses AES-256 encryption to store your credentials and only uses them to log in
+              via secure browser automation. LinkedIn and Naukri do not offer third-party OAuth for job applications.
+            </span>
+          </div>
         </CardContent>
       </Card>
     </motion.div>

@@ -264,15 +264,20 @@ async def fill_application_form(
         return False, {}, str(e)
 
 
-async def submit_application(page: Page) -> tuple[bool, str | None]:
-    """Click the submit/apply button. Returns (success, error)."""
+async def _click_apply_on_page(page: Page) -> tuple[bool, str | None]:
+    """Try to click an Apply / Apply Now button."""
     selectors = [
+        'button:has-text("Apply")',
+        'button:has-text("Apply Now")',
+        'a:has-text("Apply")',
+        'a:has-text("Apply Now")',
+        "[id*='apply']",
+        "[class*='apply']",
+        ".apply-button",
         'button[type="submit"]',
         'button:has-text("Submit")',
-        'button:has-text("Apply")',
         'button:has-text("Send")',
         'input[type="submit"]',
-        ".apply-button",
         "#submit-application",
     ]
     for sel in selectors:
@@ -280,12 +285,99 @@ async def submit_application(page: Page) -> tuple[bool, str | None]:
             btn = await page.query_selector(sel)
             if btn and await btn.is_visible():
                 await _random_delay(0.5, 1.5)
+                await btn.scroll_into_view_if_needed()
                 await btn.click()
                 await _random_delay(3, 5)
                 return True, None
         except Exception:
             continue
-    return False, "No submit button found"
+    return False, "No apply button found"
+
+
+async def _is_naukri_login_required(page: Page) -> bool:
+    """Detect if Naukri job page requires login before applying."""
+    login_btn = await page.query_selector('button:has-text("Login to Apply")')
+    if login_btn and await login_btn.is_visible():
+        return True
+    # Also check page content for common login-wall text
+    body = await page.content()
+    return "login to apply" in body.lower() or "login and apply" in body.lower()
+
+
+async def _is_naukri_external_apply(page: Page) -> bool:
+    """Detect if the job requires applying on the company's own site."""
+    ext_btn = await page.query_selector('button:has-text("Apply on company site")')
+    if ext_btn and await ext_btn.is_visible():
+        return True
+    body = await page.content()
+    return "apply on company site" in body.lower()
+
+
+async def _apply_naukri(
+    page: Page,
+    profile: dict,
+    resume_path: str | None,
+    cover_letter: str | None,
+    user_id: uuid.UUID,
+    username: str,
+    encrypted_password: str,
+    db_session=None,
+) -> tuple[bool, str | None, dict[str, str]]:
+    """Naukri-specific apply flow."""
+    answers: dict[str, str] = {}
+
+    # Ensure we are logged in first
+    job_url = page.url
+    if await _is_naukri_login_required(page):
+        password = decrypt(encrypted_password)
+        ok = await _login_naukri(page, username, password)
+        if not ok:
+            return False, "Naukri login failed", {}
+        # Navigate back to the job page after login
+        await page.goto(job_url, wait_until="networkidle", timeout=30000)
+        await _random_delay(2, 4)
+
+    # Skip jobs that redirect to external company sites — too complex to automate
+    if await _is_naukri_external_apply(page):
+        return False, "External apply — company site", {}
+
+    # Click the Apply / Apply Now button on the job page
+    clicked, click_err = await _click_apply_on_page(page)
+    if not clicked:
+        return False, click_err, {}
+
+    # Wait for any inline form / modal to appear
+    await _random_delay(2, 4)
+
+    # Check for confirmation modal / success message
+    body = await page.content()
+    if any(msg in body.lower() for msg in [
+        "successfully applied",
+        "application submitted",
+        "you have applied",
+        "applied successfully",
+    ]):
+        return True, None, {}
+
+    # Fill any form fields that appeared after clicking Apply
+    fill_ok, answers, fill_err = await fill_application_form(
+        page, profile, resume_path, cover_letter, user_id, db_session
+    )
+    if not fill_ok:
+        return False, f"Form fill error: {fill_err}", answers
+
+    # Try clicking submit on the form/modal
+    sub_ok, sub_err = await _click_apply_on_page(page)
+    if not sub_ok:
+        return False, f"Submit error: {sub_err}", answers
+
+    await _random_delay(2, 3)
+    return True, None, answers
+
+
+async def submit_application(page: Page) -> tuple[bool, str | None]:
+    """Click the submit/apply button. Returns (success, error)."""
+    return await _click_apply_on_page(page)
 
 
 async def apply_to_job(
@@ -302,7 +394,8 @@ async def apply_to_job(
     Full application flow: open page, fill form, submit.
     Returns (success, error, screenshot_path, answers_used).
     """
-    ctx_dir = Path(settings.UPLOAD_DIR) / f".ctx_{user_id}_{platform}"
+    # Use a unique profile dir per task to avoid "Firefox already running" collisions
+    ctx_dir = Path(settings.UPLOAD_DIR) / f".ctx_{user_id}_{platform}_{uuid.uuid4().hex[:8]}"
     ctx_dir.mkdir(parents=True, exist_ok=True)
     screenshot_path: str | None = None
     answers: dict[str, str] = {}
@@ -310,19 +403,33 @@ async def apply_to_job(
     async with async_playwright() as pw:
         width = random.randint(VIEWPORT_MIN, VIEWPORT_MAX)
         height = random.randint(800, 1080)
-        context = await pw.chromium.launch_persistent_context(
-            user_data_dir=str(ctx_dir),
-            headless=True,
-            viewport={"width": width, "height": height},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            ),
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        browser = "firefox" if platform == "naukri" else "chromium"
+        if browser == "firefox":
+            context = await pw.firefox.launch_persistent_context(
+                user_data_dir=str(ctx_dir),
+                headless=True,
+                viewport={"width": width, "height": height},
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) "
+                    "Gecko/20100101 Firefox/120.0"
+                ),
+            )
+        else:
+            context = await pw.chromium.launch_persistent_context(
+                user_data_dir=str(ctx_dir),
+                headless=True,
+                viewport={"width": width, "height": height},
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                ),
+                args=["--disable-blink-features=AutomationControlled"],
+            )
         try:
             page = await context.new_page()
-            await stealth_async(page)
+            # stealth_async can break Firefox pages; skip it for Naukri
+            if platform != "naukri":
+                await stealth_async(page)
 
             # Navigate to the job
             await page.goto(apply_url, wait_until="domcontentloaded", timeout=30000)
@@ -343,19 +450,28 @@ async def apply_to_job(
                 await page.goto(apply_url, wait_until="domcontentloaded", timeout=30000)
                 await _random_delay(2, 4)
 
-            # Fill the form
-            fill_ok, answers, fill_err = await fill_application_form(
-                page, profile, resume_path, cover_letter, user_id
-            )
-            if not fill_ok:
-                screenshot_path = await _save_screenshot(page, user_id, "fill_failed")
-                return False, f"Form fill error: {fill_err}", screenshot_path, answers
+            if platform == "naukri":
+                # Naukri-specific flow: click Apply first, then fill any modal/form
+                naukri_ok, naukri_err, answers = await _apply_naukri(
+                    page, profile, resume_path, cover_letter, user_id, username, encrypted_password
+                )
+                if not naukri_ok:
+                    screenshot_path = await _save_screenshot(page, user_id, "submit_failed")
+                    return False, naukri_err, screenshot_path, answers
+            else:
+                # Fill the form
+                fill_ok, answers, fill_err = await fill_application_form(
+                    page, profile, resume_path, cover_letter, user_id
+                )
+                if not fill_ok:
+                    screenshot_path = await _save_screenshot(page, user_id, "fill_failed")
+                    return False, f"Form fill error: {fill_err}", screenshot_path, answers
 
-            # Submit
-            sub_ok, sub_err = await submit_application(page)
-            if not sub_ok:
-                screenshot_path = await _save_screenshot(page, user_id, "submit_failed")
-                return False, f"Submit error: {sub_err}", screenshot_path, answers
+                # Submit
+                sub_ok, sub_err = await submit_application(page)
+                if not sub_ok:
+                    screenshot_path = await _save_screenshot(page, user_id, "submit_failed")
+                    return False, f"Submit error: {sub_err}", screenshot_path, answers
 
             await _random_delay(2, 3)
             screenshot_path = await _save_screenshot(page, user_id, "success")
