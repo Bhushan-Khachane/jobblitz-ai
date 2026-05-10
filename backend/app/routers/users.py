@@ -31,6 +31,10 @@ async def update_me(
         user.phone = body.phone
     if body.location is not None:
         user.location = body.location
+    if body.application_mode is not None:
+        user.application_mode = body.application_mode
+    if body.daily_apply_limit is not None:
+        user.daily_apply_limit = body.daily_apply_limit
     await db.commit()
     await db.refresh(user)
     return user
