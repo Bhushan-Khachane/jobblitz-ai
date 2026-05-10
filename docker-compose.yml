@@ -95,7 +95,7 @@ services:
     image: mher/flower:2.0
     command: celery flower --broker=redis://redis:6379/0 --port=5556
     ports:
-      - "5556:5556"
+      - "5557:5556"
     depends_on:
       - redis
     environment:
