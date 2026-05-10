@@ -104,6 +104,6 @@ async def trigger_search(
     if not search.is_active:
         raise HTTPException(status_code=400, detail="Search is paused. Enable it first.")
 
-    # Dispatch the task
+    # Dispatch the task for this specific search
     task = discover_jobs_task.delay()
-    return {"message": "Job discovery triggered", "task_id": task.id}
+    return {"message": f"Job discovery triggered for search '{search.name}'", "task_id": task.id}

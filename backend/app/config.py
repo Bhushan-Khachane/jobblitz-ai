@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     FERNET_KEY: str = Field(..., description="Fernet encryption key for credentials")
 
     # ── Optional with safe defaults ──────────────────────────────────────────
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str = "redis://redis:6379/0"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7

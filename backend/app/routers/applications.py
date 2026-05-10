@@ -238,6 +238,85 @@ async def get_application(
     return app
 
 
+@router.get("/approval-queue", response_model=list[ApplicationResponse])
+async def get_approval_queue(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all applications awaiting user approval (assisted mode)."""
+    result = await db.execute(
+        select(Application)
+        .where(
+            Application.user_id == user.id,
+            Application.approval_status == "pending_approval",
+        )
+        .order_by(Application.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.post("/{application_id}/approve")
+async def approve_application(
+    application_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Approve a pending application and dispatch the apply task."""
+    result = await db.execute(
+        select(Application).where(Application.id == application_id, Application.user_id == user.id)
+    )
+    app = result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if app.approval_status != "pending_approval":
+        raise HTTPException(status_code=400, detail="Application is not pending approval")
+
+    app.approval_status = "approved"
+    app.status = "pending"
+    await db.commit()
+
+    # Dispatch the auto-apply task
+    auto_apply_task.delay(
+        user_id=str(user.id),
+        job_listing_id=str(app.job_listing_id),
+        resume_id=str(app.resume_id) if app.resume_id else None,
+    )
+
+    return {"message": "Application approved and queued", "application_id": str(app.id)}
+
+
+@router.post("/{application_id}/reject")
+async def reject_application(
+    application_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reject a pending application (user decides not to apply)."""
+    result = await db.execute(
+        select(Application).where(Application.id == application_id, Application.user_id == user.id)
+    )
+    app = result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if app.approval_status != "pending_approval":
+        raise HTTPException(status_code=400, detail="Application is not pending approval")
+
+    app.approval_status = "rejected"
+    app.status = "skipped"
+    await db.commit()
+
+    # Also mark the job listing
+    listing_result = await db.execute(
+        select(JobListing).where(JobListing.id == app.job_listing_id)
+    )
+    listing = listing_result.scalar_one_or_none()
+    if listing:
+        listing.status = "skipped"
+        await db.commit()
+
+    return {"message": "Application rejected", "application_id": str(app.id)}
+
+
 @router.get("/{job_listing_id}/stream-apply")
 async def stream_apply(
     job_listing_id: uuid.UUID,

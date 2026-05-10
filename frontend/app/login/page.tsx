@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import api from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 const schema = z.object({
   email: z.string().email("Enter a valid email"),
@@ -23,6 +23,7 @@ type FormValues = z.infer<typeof schema>;
 
 export default function LoginPage() {
   const router = useRouter();
+  const { login } = useAuth();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPw, setShowPw] = useState(false);
@@ -37,12 +38,11 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      const res = await api.post("/auth/login", data);
-      localStorage.setItem("jb_access_token", res.data.access_token);
-      localStorage.setItem("jb_refresh_token", res.data.refresh_token);
-      router.push("/dashboard");
+      await login(data.email, data.password);
+      // login() in useAuth handles token storage, user context update, and redirect
     } catch (e: any) {
-      setError(e.response?.data?.detail || "Login failed. Please check your credentials.");
+      const message = e.response?.data?.detail || e.message || "Login failed. Please check your credentials.";
+      setError(message);
     } finally {
       setLoading(false);
     }

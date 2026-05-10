@@ -12,7 +12,7 @@ from app.config import settings
 from app.database import engine
 from app.models import Application, Credential, JobListing, JobSearch, Profile, Resume, UsageLog, User
 from app.services.scraper_service import scrape_linkedin_jobs, scrape_naukri_jobs
-from app.services.matching_service import match_job_to_resume
+from app.services.matching_service import match_job_to_resume, match_job_to_resume_detailed
 
 import logging
 
@@ -144,14 +144,24 @@ async def _discover_jobs_async() -> dict:
 
                     # Score the job against the resume
                     match_score = None
+                    match_explanation = None
                     if resume_text:
-                        match_score = match_job_to_resume(
+                        result = match_job_to_resume_detailed(
                             job_title=job_data.get("title", ""),
                             job_description=job_data.get("description", ""),
                             resume_text=resume_text,
                             profile_skills=profile.skills if profile else None,
                             profile_job_titles=profile.preferred_job_titles if profile else None,
+                            job_location=job_data.get("location"),
+                            job_salary=job_data.get("salary_info"),
+                            preferred_locations=profile.preferred_locations if profile else None,
+                            expected_salary_lpa=profile.expected_salary_lpa if profile else None,
+                            notice_period_days=profile.notice_period_days if profile else None,
+                            experience_years=None,  # TODO: extract from profile
                         )
+                        match_score = result.final_score
+                        match_explanation = result.to_dict()
+
                         # Skip low-match jobs
                         if match_score is not None and match_score < settings.MIN_MATCH_SCORE_TO_SAVE:
                             logger.debug(
@@ -175,6 +185,7 @@ async def _discover_jobs_async() -> dict:
                         posted_date=job_data.get("posted_date"),
                         status="discovered",
                         match_score=match_score,
+                        match_explanation=match_explanation,
                     )
                     db.add(listing)
                     search_discovered += 1
@@ -558,6 +569,7 @@ def batch_auto_apply_task() -> dict:
 
 async def _batch_auto_apply_async() -> dict:
     dispatched = 0
+    queued_for_approval = 0
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     await engine.dispose()
     async with _async_session() as db:
@@ -573,9 +585,20 @@ async def _batch_auto_apply_async() -> dict:
 
             # Group listings by user_id for rate-limit checking
             user_counts: dict[str, int] = {}
+            # Cache user objects to avoid repeated queries
+            user_cache: dict[str, User] = {}
 
             for listing in listings:
                 uid = str(listing.user_id)
+
+                # Load and cache user
+                if uid not in user_cache:
+                    user_result = await db.execute(select(User).where(User.id == listing.user_id))
+                    user = user_result.scalar_one_or_none()
+                    if not user:
+                        continue
+                    user_cache[uid] = user
+                user = user_cache[uid]
 
                 # Count today's applications for this user (cached per batch run)
                 if uid not in user_counts:
@@ -587,13 +610,7 @@ async def _batch_auto_apply_async() -> dict:
                     )
                     user_counts[uid] = len(count_result.scalars().all())
 
-                # Get user to check daily limit
-                user_result = await db.execute(select(User).where(User.id == listing.user_id))
-                user = user_result.scalar_one_or_none()
-                if not user:
-                    continue
-
-                daily_limit = user.daily_apply_limit if hasattr(user, "daily_apply_limit") and user.daily_apply_limit else settings.MAX_APPLICATIONS_PER_DAY
+                daily_limit = user.daily_apply_limit if user.daily_apply_limit else settings.MAX_APPLICATIONS_PER_DAY
                 if user_counts[uid] >= daily_limit:
                     continue
 
@@ -608,7 +625,37 @@ async def _batch_auto_apply_async() -> dict:
                 if not cred_result.scalar_one_or_none():
                     continue
 
-                # Dispatch the individual apply task
+                # Get user's default resume
+                res_result = await db.execute(
+                    select(Resume).where(Resume.user_id == listing.user_id, Resume.is_default == True)
+                )
+                resume = res_result.scalar_one_or_none()
+
+                application_mode = getattr(user, "application_mode", "assisted") or "assisted"
+
+                if application_mode == "manual":
+                    # Manual mode: just mark as discovered, user applies themselves
+                    listing.status = "discovered"
+                    continue
+
+                if application_mode == "assisted":
+                    # Assisted mode: create application with pending_approval status
+                    # User must approve before we auto-apply
+                    app = Application(
+                        user_id=listing.user_id,
+                        job_listing_id=listing.id,
+                        resume_id=resume.id if resume else None,
+                        status="pending",
+                        approval_status="pending_approval",
+                    )
+                    db.add(app)
+                    listing.status = "applied"
+                    await db.commit()
+                    queued_for_approval += 1
+                    user_counts[uid] += 1
+                    continue
+
+                # Auto mode: dispatch the individual apply task directly
                 auto_apply_task.delay(
                     user_id=uid,
                     job_listing_id=str(listing.id),
@@ -620,7 +667,7 @@ async def _batch_auto_apply_async() -> dict:
             logger.error(f"Batch auto-apply dispatch failed: {e}", exc_info=True)
             raise
 
-    return {"dispatched": dispatched}
+    return {"dispatched": dispatched, "queued_for_approval": queued_for_approval}
 
 
 # ── Celery Beat schedule ─────────────────────────────────────────────────────

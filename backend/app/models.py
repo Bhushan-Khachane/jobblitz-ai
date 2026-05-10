@@ -1,9 +1,11 @@
+import enum
 import uuid
 from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Enum,
     Float,
     ForeignKey,
     Index,
@@ -22,6 +24,13 @@ def gen_uuid():
     return uuid.uuid4()
 
 
+class ApplicationMode(str, enum.Enum):
+    """How the user wants applications to be handled."""
+    MANUAL = "manual"        # Discover + tailor, user applies themselves
+    ASSISTED = "assisted"    # AI prepares everything, user approves before submit
+    AUTO = "auto"            # AI auto-applies for high-confidence, low-risk flows
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -32,6 +41,10 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(20))
     location: Mapped[str | None] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    application_mode: Mapped[str] = mapped_column(
+        String(20), default=ApplicationMode.ASSISTED.value
+    )  # manual, assisted, auto
+    daily_apply_limit: Mapped[int] = mapped_column(Integer, default=50)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -152,6 +165,7 @@ class JobListing(Base):
     posted_date: Mapped[str | None] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(String(50), default="discovered")  # discovered/applied/failed/skipped
     match_score: Mapped[float | None] = mapped_column(Float)
+    match_explanation: Mapped[dict | None] = mapped_column(JSONB)
     extra_data: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -178,7 +192,10 @@ class Application(Base):
     )
     status: Mapped[str] = mapped_column(
         String(50), default="pending", index=True
-    )  # pending/submitted/failed/interview/rejected/accepted
+    )  # pending/approved/submitted/failed/interview/rejected/accepted/skipped
+    approval_status: Mapped[str | None] = mapped_column(
+        String(20), default=None, index=True
+    )  # None/pending_approval/approved/rejected (for assisted mode)
     cover_letter: Mapped[str | None] = mapped_column(Text)
     tailored_resume_path: Mapped[str | None] = mapped_column(Text)
     answers_used: Mapped[dict | None] = mapped_column(JSONB)

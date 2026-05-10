@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,10 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
-# TODO: add slowapi rate limiter for /auth routes in production
-
 from app.config import settings
 from app.database import engine
+from app.middleware import RequestLogMiddleware
 from app.routers import (
     analytics,
     applications,
@@ -47,14 +45,12 @@ app = FastAPI(
 # ── Security middleware (outermost first) ────────────────────────────────────
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])  # tighten in prod
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "*.jobblitz.ai", ".localhost"])
+app.add_middleware(RequestLogMiddleware)
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
 
-ALLOWED_ORIGINS = os.getenv(
-    "ALLOWED_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001",
-).split(",")
+ALLOWED_ORIGINS = settings.ALLOWED_ORIGINS.split(",")
 
 app.add_middleware(
     CORSMiddleware,

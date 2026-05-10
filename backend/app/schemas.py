@@ -36,6 +36,8 @@ class UserResponse(BaseModel):
     phone: str | None
     location: str | None
     is_active: bool
+    application_mode: str
+    daily_apply_limit: int
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -45,6 +47,8 @@ class UserUpdate(BaseModel):
     full_name: str | None = None
     phone: str | None = None
     location: str | None = None
+    application_mode: str | None = Field(None, pattern="^(manual|assisted|auto)$")
+    daily_apply_limit: int | None = Field(None, ge=1, le=500)
 
 
 # ── Profile ───────────────────────────────────────────────────────────────────
@@ -188,6 +192,7 @@ class JobListingResponse(BaseModel):
     posted_date: str | None
     status: str
     match_score: float | None
+    match_explanation: dict | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -208,6 +213,7 @@ class ApplicationResponse(BaseModel):
     job_listing_id: uuid.UUID
     resume_id: uuid.UUID | None
     status: str
+    approval_status: str | None
     cover_letter: str | None
     error_message: str | None
     screenshot_path: str | None
@@ -219,7 +225,7 @@ class ApplicationResponse(BaseModel):
 
 
 class ApplicationStatusUpdate(BaseModel):
-    status: str = Field(pattern="^(pending|submitted|failed|interview|rejected|accepted)$")
+    status: str = Field(pattern="^(pending|approved|submitted|failed|interview|rejected|accepted|skipped)$")
 
 
 class ApplyRequest(BaseModel):
