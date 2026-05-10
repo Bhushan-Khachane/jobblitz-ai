@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
 from app.database import engine
-from app.models import Application, Credential, JobListing, JobSearch, Profile, Resume, UsageLog, User
+from app.models import Application, Credential, DeadLetterLog, JobListing, JobSearch, Profile, Resume, UsageLog, User
 from app.services.scraper_service import scrape_linkedin_jobs, scrape_naukri_jobs
 from app.services.matching_service import match_job_to_resume, match_job_to_resume_detailed
 
@@ -26,16 +26,37 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
+async def _log_to_dead_letter(task_name: str, task_args: dict | None, error_message: str, retry_count: int = 0) -> None:
+    """Log a failed task to the dead-letter table for later inspection/replay."""
+    async with _async_session() as db:
+        entry = DeadLetterLog(
+            task_name=task_name,
+            task_args=task_args,
+            error_message=error_message[:4000],
+            retry_count=retry_count,
+        )
+        db.add(entry)
+        await db.commit()
+
+
 @signals.worker_process_init.connect
 def init_worker(**kwargs):
     """Dispose SQLAlchemy engine after fork to avoid connection-pool loop conflicts."""
     asyncio.run(engine.dispose())
 
 
-@shared_task(name="app.workers.tasks.discover_jobs_task")
+@shared_task(name="app.workers.tasks.discover_jobs_task", autoretry_for=(Exception,), max_retries=1, retry_backoff=120)
 def discover_jobs_task() -> dict:
     """Discover jobs for all active searches."""
-    return _run_async(_discover_jobs_async())
+    try:
+        return _run_async(_discover_jobs_async())
+    except Exception as e:
+        asyncio.run(_log_to_dead_letter(
+            task_name="app.workers.tasks.discover_jobs_task",
+            task_args=None,
+            error_message=str(e),
+        ))
+        raise
 
 
 def _build_keywords(profile: Profile | None, search_keywords: str) -> str:
@@ -221,10 +242,22 @@ async def _discover_jobs_async() -> dict:
     return {"discovered": total_discovered}
 
 
-@shared_task(name="app.workers.tasks.auto_apply_task")
+@shared_task(name="app.workers.tasks.auto_apply_task", autoretry_for=(Exception,), max_retries=2, retry_backoff=60)
 def auto_apply_task(user_id: str, job_listing_id: str, resume_id: str | None = None) -> dict:
-    """Apply to a specific job listing."""
-    return _run_async(_auto_apply_async(user_id, job_listing_id, resume_id))
+    """Apply to a specific job listing. Retries up to 2 times on failure, then dead-letters."""
+    try:
+        return _run_async(_auto_apply_async(user_id, job_listing_id, resume_id))
+    except Exception as e:
+        retries = auto_apply_task.request.retries or 0
+        if retries >= 2:
+            logger.error(f"auto_apply_task dead-lettered after {retries} retries: {e}")
+            asyncio.run(_log_to_dead_letter(
+                task_name="app.workers.tasks.auto_apply_task",
+                task_args={"user_id": user_id, "job_listing_id": job_listing_id, "resume_id": resume_id},
+                error_message=str(e),
+                retry_count=retries,
+            ))
+        raise
 
 
 async def _auto_apply_async(user_id: str, job_listing_id: str, resume_id: str | None) -> dict:
@@ -232,7 +265,18 @@ async def _auto_apply_async(user_id: str, job_listing_id: str, resume_id: str | 
     uid = uuid.UUID(user_id)
     lid = uuid.UUID(job_listing_id)
 
+    # Idempotency: skip if already applied
+    idempotency_key = f"apply:{uid}:{lid}"
+
     async with _async_session() as db:
+        # Check for existing application
+        existing = await db.execute(
+            select(Application).where(Application.idempotency_key == idempotency_key)
+        )
+        if existing_app := existing.scalar_one_or_none():
+            if existing_app.status in ("submitted", "applied"):
+                logger.info(f"Skipping duplicate apply for {idempotency_key} — already {existing_app.status}")
+                return {"success": True, "application_id": str(existing_app.id), "skipped": True}
         # Get user
         user_result = await db.execute(select(User).where(User.id == uid))
         user = user_result.scalar_one_or_none()

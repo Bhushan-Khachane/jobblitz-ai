@@ -50,8 +50,8 @@ async def apply_to_job_endpoint(
     For auto mode users, the task is dispatched immediately.
     Returns the application record immediately — status updates happen asynchronously.
     """
-    # Rate limit check
-    await rate_limiter.check(user.id)
+    # Atomic rate limit check + increment
+    await rate_limiter.check_and_increment(user.id)
 
     # Get job listing
     result = await db.execute(
@@ -61,13 +61,10 @@ async def apply_to_job_endpoint(
     if not listing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job listing not found")
 
-    # Check if already applied
+    # Idempotency: check for existing application by key
+    idempotency_key = f"apply:{user.id}:{job_listing_id}"
     existing = await db.execute(
-        select(Application).where(
-            Application.user_id == user.id,
-            Application.job_listing_id == job_listing_id,
-            Application.status.in_(["pending", "submitted"]),
-        )
+        select(Application).where(Application.idempotency_key == idempotency_key)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already applied to this job")
@@ -107,6 +104,7 @@ async def apply_to_job_endpoint(
             resume_id=resume_id,
             status="pending",
             approval_status=None,
+            idempotency_key=idempotency_key,
         )
         db.add(application)
         listing.status = "applied"
@@ -122,6 +120,7 @@ async def apply_to_job_endpoint(
             resume_id=resume_id,
             status="pending",
             approval_status="pending_approval",
+            idempotency_key=idempotency_key,
         )
         db.add(application)
         listing.status = "discovered"  # Keep as discovered until approved
@@ -136,6 +135,7 @@ async def apply_to_job_endpoint(
         resume_id=resume_id,
         status="pending",
         approval_status="approved",
+        idempotency_key=idempotency_key,
     )
     db.add(application)
     listing.status = "applied"
@@ -148,9 +148,6 @@ async def apply_to_job_endpoint(
         job_listing_id=str(job_listing_id),
         resume_id=str(resume_id),
     )
-
-    # Increment rate limiter
-    await rate_limiter.increment(user.id)
 
     return application
 

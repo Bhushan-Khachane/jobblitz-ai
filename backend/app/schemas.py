@@ -214,6 +214,7 @@ class ApplicationResponse(BaseModel):
     resume_id: uuid.UUID | None
     status: str
     approval_status: str | None
+    idempotency_key: str | None
     cover_letter: str | None
     error_message: str | None
     screenshot_path: str | None

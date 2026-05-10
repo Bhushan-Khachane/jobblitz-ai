@@ -196,6 +196,9 @@ class Application(Base):
     approval_status: Mapped[str | None] = mapped_column(
         String(20), default=None, index=True
     )  # None/pending_approval/approved/rejected (for assisted mode)
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(255), unique=True, index=True
+    )  # Deduplication key: f"apply:{user_id}:{job_listing_id}"
     cover_letter: Mapped[str | None] = mapped_column(Text)
     tailored_resume_path: Mapped[str | None] = mapped_column(Text)
     answers_used: Mapped[dict | None] = mapped_column(JSONB)
@@ -240,3 +243,16 @@ class UsageLog(Base):
     user: Mapped["User"] = relationship("User", back_populates="usage_logs")
 
     __table_args__ = (Index("ix_usage_logs_user_action", "user_id", "action"),)
+
+
+class DeadLetterLog(Base):
+    """Records for tasks that failed after all retry attempts."""
+    __tablename__ = "dead_letter_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    task_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    task_args: Mapped[dict | None] = mapped_column(JSONB)
+    error_message: Mapped[str] = mapped_column(Text, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
