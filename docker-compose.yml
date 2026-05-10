@@ -48,6 +48,8 @@ services:
       - uploads_data:/app/uploads
       - screenshots_data:/app/screenshots
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   frontend:
     build: ./frontend
@@ -73,6 +75,8 @@ services:
       - uploads_data:/app/uploads
       - screenshots_data:/app/screenshots
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   celery_beat:
     build: ./backend

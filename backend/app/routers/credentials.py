@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -11,17 +12,19 @@ from app.dependencies import get_current_user
 from app.models import Credential, User
 from app.schemas import CredentialCreate, CredentialResponse, CredentialUpdate
 from app.utils.encryption import encrypt
-from app.services.apply_service import login_with_credentials
-import tempfile
-from datetime import datetime, timezone
 
 router = APIRouter(prefix="/credentials", tags=["credentials"])
 
 
 @router.get("/", response_model=list[CredentialResponse])
-async def list_credentials(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_credentials(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
-        select(Credential).where(Credential.user_id == user.id).order_by(Credential.created_at.desc())
+        select(Credential)
+        .where(Credential.user_id == user.id)
+        .order_by(Credential.created_at.desc())
     )
     return result.scalars().all()
 
@@ -32,26 +35,9 @@ async def create_credential(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Encrypt password first
     encrypted_pw = encrypt(body.password)
 
-    # Test login before saving — give immediate feedback
-    with tempfile.TemporaryDirectory() as tmpdir:
-        login_ok, login_error = await login_with_credentials(
-            platform=body.platform,
-            username=body.username,
-            encrypted_password=encrypted_pw,
-            user_data_dir=tmpdir,
-        )
-
-    if not login_ok:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Login verification failed for {body.platform}: {login_error}. "
-                   f"Please check your email and password and try again."
-        )
-
-    # Check for duplicate
+    # Check for duplicate platform credential
     existing = await db.execute(
         select(Credential).where(
             Credential.user_id == user.id,
@@ -61,15 +47,19 @@ async def create_credential(
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"{body.platform} credentials already exist. Delete the existing one first."
+            detail=f"{body.platform.capitalize()} credentials already exist. Remove the existing ones first.",
         )
 
+    # Save credentials — login verification happens separately via /test endpoint
+    # We do NOT block save on login test because:
+    # 1. Login test via Playwright/browser-use takes 30-60 seconds
+    # 2. HTTP requests time out before it completes
+    # 3. Users can explicitly test via the Test button after saving
     cred = Credential(
         user_id=user.id,
         platform=body.platform,
         username=body.username,
         encrypted_password=encrypted_pw,
-        last_login_at=datetime.now(timezone.utc),
     )
     db.add(cred)
     await db.commit()
@@ -85,7 +75,10 @@ async def update_credential(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Credential).where(Credential.id == credential_id, Credential.user_id == user.id)
+        select(Credential).where(
+            Credential.id == credential_id,
+            Credential.user_id == user.id,
+        )
     )
     cred = result.scalar_one_or_none()
     if not cred:
@@ -110,7 +103,10 @@ async def delete_credential(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Credential).where(Credential.id == credential_id, Credential.user_id == user.id)
+        select(Credential).where(
+            Credential.id == credential_id,
+            Credential.user_id == user.id,
+        )
     )
     cred = result.scalar_one_or_none()
     if not cred:
@@ -119,30 +115,45 @@ async def delete_credential(
     await db.commit()
 
 
-@router.post("/{credential_id}/test", status_code=status.HTTP_200_OK)
+@router.post("/{credential_id}/test")
 async def test_credential(
     credential_id: uuid.UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Test saved credentials by running a quick browser login check.
+    This is a long-running operation (30-60s) — call from frontend
+    with a long timeout or trigger as a background task.
+    """
     result = await db.execute(
-        select(Credential).where(Credential.id == credential_id, Credential.user_id == user.id)
+        select(Credential).where(
+            Credential.id == credential_id,
+            Credential.user_id == user.id,
+        )
     )
     cred = result.scalar_one_or_none()
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found")
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        login_ok, login_error = await login_with_credentials(
+    try:
+        from app.services.agent_service import test_login_with_agent
+        login_ok, message = await test_login_with_agent(
             platform=cred.platform,
             username=cred.username,
             encrypted_password=cred.encrypted_password,
-            user_data_dir=tmpdir,
         )
+    except Exception as e:
+        return {
+            "platform": cred.platform,
+            "success": False,
+            "message": f"Test failed with error: {str(e)[:300]}",
+            "tested_at": datetime.now(timezone.utc).isoformat(),
+        }
 
-    if login_ok:
-        cred.last_login_at = datetime.now(timezone.utc)
-        await db.commit()
-        return {"status": "success", "message": f"{cred.platform} login verified successfully ✓"}
-    else:
-        return {"status": "failed", "message": f"Login failed: {login_error}"}
+    return {
+        "platform": cred.platform,
+        "success": login_ok,
+        "message": message,
+        "tested_at": datetime.now(timezone.utc).isoformat(),
+    }

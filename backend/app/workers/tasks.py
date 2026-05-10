@@ -12,7 +12,6 @@ from app.config import settings
 from app.database import engine
 from app.models import Application, Credential, JobListing, JobSearch, Profile, Resume, UsageLog, User
 from app.services.scraper_service import scrape_linkedin_jobs, scrape_naukri_jobs
-from app.services.apply_service import apply_to_job
 from app.services.matching_service import match_job_to_resume
 
 import logging
@@ -99,23 +98,34 @@ async def _discover_jobs_async() -> dict:
 
                 keywords = _build_keywords(profile, search.keywords) if search.auto_match else search.keywords
 
+                logger.info(f"Starting job discovery for search {search_id} (user {user_id}): platform={search.platform}, keywords='{keywords}', location={search.location}")
+
                 jobs: list[dict] = []
                 if search.platform in ("linkedin", "both"):
+                    logger.info(f"Scraping LinkedIn jobs for '{keywords}' in {search.location or 'anywhere'}...")
                     linkedin_jobs = await scrape_linkedin_jobs(
                         keywords=keywords,
                         location=search.location,
                         experience_level=search.experience_level,
                         remote_only=search.remote_only,
                     )
+                    logger.info(f"LinkedIn scraper found {len(linkedin_jobs)} jobs")
                     jobs.extend(linkedin_jobs)
 
                 if search.platform in ("naukri", "both"):
+                    logger.info(f"Scraping Naukri jobs for '{keywords}' in {search.location or 'anywhere'}...")
                     naukri_jobs = await scrape_naukri_jobs(
                         keywords=keywords,
                         location=search.location,
                         experience_level=search.experience_level,
                     )
+                    logger.info(f"Naukri scraper found {len(naukri_jobs)} jobs")
                     jobs.extend(naukri_jobs)
+
+                logger.info(f"Total jobs found for search {search_id}: {len(jobs)}")
+
+                duplicates_skipped = 0
+                low_match_skipped = 0
 
                 for job_data in jobs:
                     # Skip duplicates
@@ -128,6 +138,8 @@ async def _discover_jobs_async() -> dict:
                             )
                         )
                         if dup.scalar_one_or_none():
+                            logger.debug(f"Skipping duplicate job: {job_data.get('title')} at {job_data.get('company')}")
+                            duplicates_skipped += 1
                             continue
 
                     # Score the job against the resume
@@ -146,6 +158,7 @@ async def _discover_jobs_async() -> dict:
                                 f"Skipped low-match job '{job_data.get('title')}' "
                                 f"score={match_score} for search {search_id}"
                             )
+                            low_match_skipped += 1
                             continue
 
                     listing = JobListing(
@@ -166,6 +179,8 @@ async def _discover_jobs_async() -> dict:
                     db.add(listing)
                     search_discovered += 1
                     total_discovered += 1
+
+                logger.info(f"Job discovery for search {search_id}: {len(jobs)} total, {duplicates_skipped} duplicates, {low_match_skipped} low-match, {search_discovered} saved")
 
                 search.last_run_at = datetime.now(timezone.utc)
                 await db.commit()
@@ -273,16 +288,36 @@ async def _auto_apply_async(user_id: str, job_listing_id: str, resume_id: str | 
         await db.commit()
         await db.refresh(application)
 
-        # Apply
-        success, error, screenshot_path, answers = await apply_to_job(
-            apply_url=listing.apply_url or "",
-            user_id=uid,
-            profile=profile_dict,
-            platform=listing.platform,
-            username=credential.username,
-            encrypted_password=credential.encrypted_password,
-            resume_path=resume_path,
-        )
+        # Apply using LLM browser agent
+        # Lazy import to avoid circular imports and celery_beat crashes
+        from app.services.agent_service import apply_to_job_with_agent
+
+        success = False
+        error = None
+        screenshot_path = None
+        answers = {}
+        try:
+            async for event in apply_to_job_with_agent(
+                user_id=uid,
+                platform=listing.platform,
+                username=credential.username,
+                encrypted_password=credential.encrypted_password,
+                job_url=listing.apply_url or "",
+                profile=profile_dict,
+                resume_path=resume_path,
+            ):
+                if event.get("event") == "complete":
+                    success = event.get("success", False)
+                    error = None if success else event.get("result")
+                    screenshot_path = event.get("screenshot_path")
+                elif event.get("event") == "error":
+                    success = False
+                    error = event.get("result")
+                    screenshot_path = event.get("screenshot_path")
+        except Exception as agent_err:
+            success = False
+            error = str(agent_err)
+            logger.error(f"Agent apply failed for listing {lid}: {agent_err}", exc_info=True)
 
         if success:
             application.status = "submitted"
@@ -369,15 +404,36 @@ async def _retry_failed_async() -> dict:
                     if resume:
                         resume_path = resume.file_path
 
-                success, error, screenshot_path, answers = await apply_to_job(
-                    apply_url=listing.apply_url or "",
-                    user_id=app.user_id,
-                    profile=profile_dict,
-                    platform=listing.platform,
-                    username=credential.username,
-                    encrypted_password=credential.encrypted_password,
-                    resume_path=resume_path,
-                )
+                # Apply using LLM browser agent
+                # Lazy import to avoid circular imports and celery_beat crashes
+                from app.services.agent_service import apply_to_job_with_agent
+
+                success = False
+                error = None
+                screenshot_path = None
+                answers = {}
+                try:
+                    async for event in apply_to_job_with_agent(
+                        user_id=app.user_id,
+                        platform=listing.platform,
+                        username=credential.username,
+                        encrypted_password=credential.encrypted_password,
+                        job_url=listing.apply_url or "",
+                        profile=profile_dict,
+                        resume_path=resume_path,
+                    ):
+                        if event.get("event") == "complete":
+                            success = event.get("success", False)
+                            error = None if success else event.get("result")
+                            screenshot_path = event.get("screenshot_path")
+                        elif event.get("event") == "error":
+                            success = False
+                            error = event.get("result")
+                            screenshot_path = event.get("screenshot_path")
+                except Exception as agent_err:
+                    success = False
+                    error = str(agent_err)
+                    logger.error(f"Agent apply failed for listing {app.job_listing_id}: {agent_err}", exc_info=True)
 
                 if success:
                     app.status = "submitted"

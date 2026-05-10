@@ -4,6 +4,8 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
+import json as _json
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +13,7 @@ from app.database import get_db
 from app.dependencies import get_current_user, rate_limiter
 from app.models import Application, Credential, JobListing, Profile, Resume, User
 from app.schemas import ApplicationResponse, ApplicationStatusUpdate, ApplyRequest
-from app.services.apply_service import apply_to_job
+from app.services.agent_service import apply_to_job_with_agent
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -114,16 +116,27 @@ async def apply_to_job_endpoint(
 
     # Run application
     try:
-        success, error, screenshot_path, answers = await apply_to_job(
-            apply_url=listing.apply_url or "",
+        success = False
+        error = None
+        screenshot_path = None
+        answers = {}
+        async for event in apply_to_job_with_agent(
             user_id=user.id,
-            profile=profile_dict,
             platform=listing.platform,
             username=credential.username,
             encrypted_password=credential.encrypted_password,
+            job_url=listing.apply_url or "",
+            profile=profile_dict,
             resume_path=resume_path,
-            cover_letter=None,
-        )
+        ):
+            if event.get("event") == "complete":
+                success = event.get("success", False)
+                error = None if success else event.get("result")
+                screenshot_path = event.get("screenshot_path")
+            elif event.get("event") == "error":
+                success = False
+                error = event.get("result")
+                screenshot_path = event.get("screenshot_path")
     except Exception as e:
         success = False
         error = str(e)
@@ -223,3 +236,84 @@ async def get_application(
     if not app:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
     return app
+
+
+@router.get("/{job_listing_id}/stream-apply")
+async def stream_apply(
+    job_listing_id: uuid.UUID,
+    resume_id: uuid.UUID | None = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Stream a live apply attempt via Server-Sent Events.
+    Frontend connects to this endpoint and receives real-time
+    step-by-step progress from the browser agent.
+    """
+    # Get listing
+    listing_result = await db.execute(
+        select(JobListing).where(JobListing.id == job_listing_id, JobListing.user_id == user.id)
+    )
+    listing = listing_result.scalar_one_or_none()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Job listing not found")
+
+    # Get credentials
+    cred_result = await db.execute(
+        select(Credential).where(
+            Credential.user_id == user.id,
+            Credential.platform == listing.platform,
+            Credential.is_active == True,
+        )
+    )
+    credential = cred_result.scalar_one_or_none()
+    if not credential:
+        raise HTTPException(status_code=400, detail=f"No active {listing.platform} credentials")
+
+    # Get profile
+    prof_result = await db.execute(select(Profile).where(Profile.user_id == user.id))
+    profile = prof_result.scalar_one_or_none()
+    profile_dict = _profile_to_dict(profile, user)
+
+    # Get resume
+    resume_path = None
+    if resume_id:
+        res_result = await db.execute(
+            select(Resume).where(Resume.id == resume_id, Resume.user_id == user.id)
+        )
+        resume = res_result.scalar_one_or_none()
+        if resume:
+            resume_path = resume.file_path
+    else:
+        res_result = await db.execute(
+            select(Resume).where(Resume.user_id == user.id, Resume.is_default == True)
+        )
+        resume = res_result.scalar_one_or_none()
+        if resume:
+            resume_path = resume.file_path
+
+    async def event_stream():
+        try:
+            async for event in apply_to_job_with_agent(
+                user_id=user.id,
+                platform=listing.platform,
+                username=credential.username,
+                encrypted_password=credential.encrypted_password,
+                job_url=listing.apply_url or "",
+                profile=profile_dict,
+                resume_path=resume_path,
+            ):
+                yield f"data: {_json.dumps(event)}\n\n"
+        except Exception as e:
+            yield f"data: {_json.dumps({'event': 'error', 'result': str(e)})}\n\n"
+        finally:
+            yield "data: {\"event\": \"done\"}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
