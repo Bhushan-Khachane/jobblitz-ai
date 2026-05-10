@@ -22,7 +22,7 @@ METRO_CLUSTERS: dict[str, list[str]] = {
     "hyderabad": ["hyderabad", "hyd", "secunderabad"],
     "mumbai": ["mumbai", "bombay", "navi mumbai", "thane"],
     "gurgaon": ["gurgaon", "gurugram", "ggn"],
-    "noida": ["naukri", "noida", "greater noida", "gnoida"],
+    "noida": ["noida", "greater noida", "gnoida", "noida extension"],
     "chennai": ["chennai", "madras"],
     "delhi": ["delhi", "new delhi", "ncr", "noida", "gurgaon"],
     "kolkata": ["kolkata", "calcutta"],
@@ -123,34 +123,43 @@ class MatchResult:
 def _tokenize(text: str) -> set[str]:
     """Lowercase, strip punctuation, return unique word tokens."""
     text = text.lower()
-    text = re.sub(r"[^a-z0-9#+.\s]", " ", text)
+    text = re.sub(r"[^a-z0-9#+\s]", " ", text)
     tokens = {t.strip() for t in text.split() if len(t.strip()) > 1}
     return tokens
 
 
-def _extract_ngrams(tokens: set[str], n: int = 2) -> set[str]:
-    """Return n-grams from a token set, preserving word order from original text."""
-    if len(tokens) < n:
+def _ordered_tokens(text: str) -> list[str]:
+    """Return ordered list of tokens from text, preserving word order."""
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9#+\s]", " ", text)
+    return [t.strip() for t in text.split() if len(t.strip()) > 1]
+
+
+def _extract_ngrams(text: str, n: int = 2) -> set[str]:
+    """Return n-grams from text, preserving word order."""
+    words = _ordered_tokens(text)
+    if len(words) < n:
         return set()
-    words = sorted(tokens)
     return {" ".join(words[i : i + n]) for i in range(len(words) - n + 1)}
 
 
 def _normalize_title(title: str) -> str:
-    """Normalize job title variants to canonical form."""
+    """Normalize job title variants to canonical form using word boundary matching."""
     t = title.lower().strip()
     for variant, canonical in TITLE_NORMALIZATIONS.items():
-        if variant in t:
-            t = t.replace(variant, canonical)
+        pattern = r'\b' + re.escape(variant) + r'\b'
+        t = re.sub(pattern, canonical, t)
     return t.strip()
 
 
 def _extract_seniority(title: str) -> str | None:
-    """Extract seniority level from a job title."""
+    """Extract seniority level from a job title using word boundary matching."""
     t = title.lower()
     for level, keywords in SENIORITY_MAP.items():
         for kw in keywords:
-            if kw in t:
+            # Use word boundary matching to avoid "pm" matching inside "campus"
+            pattern = r'\b' + re.escape(kw) + r'\b'
+            if re.search(pattern, t):
                 return level
     return None
 
@@ -275,10 +284,10 @@ def match_job_to_resume_detailed(
 
     job_combined = f"{job_title} {job_description or ''}"
     job_tokens = _tokenize(job_combined)
-    job_bigrams = _extract_ngrams(job_tokens, 2)
+    job_bigrams = _extract_ngrams(job_combined, 2)
 
     resume_tokens = _tokenize(resume_text or "")
-    resume_bigrams = _extract_ngrams(resume_tokens, 2)
+    resume_bigrams = _extract_ngrams(resume_text or "", 2)
 
     # Expand skills with synonyms
     expanded_skills = _expand_skills(profile_skills)
@@ -289,11 +298,20 @@ def match_job_to_resume_detailed(
         skill_tokens = resume_tokens
 
     # ── 1. Fit Score (skill overlap + description coverage) ────────────────
-    skill_overlap = len(job_tokens & skill_tokens) + len(job_bigrams & _extract_ngrams(skill_tokens, 2))
-    skill_score = skill_overlap / max(len(job_tokens), 1)
+    # Token-level overlap (unigrams)
+    skill_token_overlap = len(job_tokens & skill_tokens)
+    skill_token_total = max(len(job_tokens), 1)
 
-    desc_overlap = len(job_tokens & resume_tokens) + len(job_bigrams & resume_bigrams)
-    desc_score = desc_overlap / max(len(job_tokens), 1)
+    # Bigram-level overlap (ordered phrases)
+    skill_text = " ".join(expanded_skills) if expanded_skills else (resume_text or "")
+    skill_bigrams = _extract_ngrams(skill_text, 2)
+    skill_bigram_overlap = len(job_bigrams & skill_bigrams)
+
+    skill_score = (skill_token_overlap + skill_bigram_overlap) / max(skill_token_total + len(job_bigrams), 1)
+
+    desc_token_overlap = len(job_tokens & resume_tokens)
+    desc_bigram_overlap = len(job_bigrams & resume_bigrams)
+    desc_score = (desc_token_overlap + desc_bigram_overlap) / max(len(job_tokens) + len(job_bigrams), 1)
 
     # Weight description more when we have a substantial job description
     if len(job_tokens) < 10:
@@ -304,16 +322,17 @@ def match_job_to_resume_detailed(
     # ── 2. Role Quality Score (title match) ────────────────────────────────
     job_title_norm = _normalize_title(job_title)
     job_title_tokens = _tokenize(job_title_norm)
-    job_title_bigrams = _extract_ngrams(job_title_tokens, 2)
+    job_title_bigrams = _extract_ngrams(job_title_norm, 2)
 
     if profile_job_titles:
         title_scores = []
         for title in profile_job_titles:
             t_norm = _normalize_title(title)
             t_tokens = _tokenize(t_norm)
-            t_bigrams = _extract_ngrams(t_tokens, 2)
+            t_bigrams = _extract_ngrams(t_norm, 2)
+            # Use word-boundary-aware token overlap for title matching
             overlap = len(job_title_tokens & t_tokens) + len(job_title_bigrams & t_bigrams)
-            score = overlap / max(len(job_title_tokens), 1)
+            score = overlap / max(len(job_title_tokens) + len(job_title_bigrams), 1)
             # Bonus for exact normalized match
             if t_norm == job_title_norm:
                 score = max(score, 0.9)

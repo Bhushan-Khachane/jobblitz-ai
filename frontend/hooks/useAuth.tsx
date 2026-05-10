@@ -13,6 +13,8 @@ interface User {
   phone: string | null;
   location: string | null;
   is_active: boolean;
+  application_mode: string;
+  daily_apply_limit: number;
 }
 
 interface AuthContextType {

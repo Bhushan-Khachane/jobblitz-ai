@@ -13,6 +13,7 @@ from app.database import get_db
 from app.dependencies import get_current_user, rate_limiter
 from app.models import Application, Credential, JobListing, Profile, Resume, User
 from app.schemas import ApplicationResponse, ApplicationStatusUpdate, ApplyRequest
+from app.workers.tasks import auto_apply_task
 from app.services.agent_service import apply_to_job_with_agent
 
 router = APIRouter(prefix="/applications", tags=["applications"])
@@ -30,7 +31,7 @@ def _profile_to_dict(profile: Profile | None, user: User) -> dict:
         "last_name": " ".join(user.full_name.split()[1:]) if user.full_name and len(user.full_name.split()) > 1 else "",
         "headline": profile.headline or "",
         "summary": profile.summary or "",
-        "skills": profile.skills or {},
+        "skills": profile.skills or [],
         "experience": profile.experience or {},
         "education": profile.education or {},
         "linkedin_url": "",
@@ -223,21 +224,6 @@ async def update_application_status(
     return app
 
 
-@router.get("/{application_id}", response_model=ApplicationResponse)
-async def get_application(
-    application_id: uuid.UUID,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(Application).where(Application.id == application_id, Application.user_id == user.id)
-    )
-    app = result.scalar_one_or_none()
-    if not app:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
-    return app
-
-
 @router.get("/approval-queue", response_model=list[ApplicationResponse])
 async def get_approval_queue(
     user: User = Depends(get_current_user),
@@ -253,6 +239,21 @@ async def get_approval_queue(
         .order_by(Application.created_at.desc())
     )
     return result.scalars().all()
+
+
+@router.get("/{application_id}", response_model=ApplicationResponse)
+async def get_application(
+    application_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Application).where(Application.id == application_id, Application.user_id == user.id)
+    )
+    app = result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+    return app
 
 
 @router.post("/{application_id}/approve")

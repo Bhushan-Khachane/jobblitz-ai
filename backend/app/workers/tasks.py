@@ -649,7 +649,7 @@ async def _batch_auto_apply_async() -> dict:
                         approval_status="pending_approval",
                     )
                     db.add(app)
-                    listing.status = "applied"
+                    # Keep listing status as "discovered" — it's not yet applied
                     await db.commit()
                     queued_for_approval += 1
                     user_counts[uid] += 1
