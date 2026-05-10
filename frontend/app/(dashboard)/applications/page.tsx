@@ -117,6 +117,7 @@ export default function ApplicationsPage() {
                         platform={listing?.platform || "—"}
                         appliedDate={app.applied_at || undefined}
                         status={app.status}
+                        approvalStatus={app.approval_status}
                       />
                     );
                   })

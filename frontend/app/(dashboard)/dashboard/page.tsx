@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Briefcase, Search, CalendarCheck, TrendingUp, ArrowRight, Plus } from "lucide-react";
+import { Briefcase, Search, CalendarCheck, TrendingUp, ArrowRight, Plus, ClipboardCheck } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import JobCard from "@/components/dashboard/JobCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +23,7 @@ interface Application {
   id: string;
   job_listing_id: string;
   status: string;
+  approval_status: string | null;
   applied_at: string | null;
   created_at: string;
 }
@@ -31,20 +32,23 @@ export default function DashboardPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [recent, setRecent] = useState<Application[]>([]);
   const [activeSearchCount, setActiveSearchCount] = useState(0);
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [ovRes, appsRes, searchRes] = await Promise.all([
+        const [ovRes, appsRes, searchRes, approvalRes] = await Promise.all([
           api.get("/analytics/overview"),
           api.get("/applications/", { params: { page: 1, page_size: 5 } }),
           api.get("/job-searches/"),
+          api.get("/applications/approval-queue").catch(() => ({ data: [] })),
         ]);
         setOverview(ovRes.data);
         setRecent(appsRes.data.items || []);
         const active = (searchRes.data || []).filter((s: any) => s.is_active).length;
         setActiveSearchCount(active);
+        setPendingApprovalCount(Array.isArray(approvalRes.data) ? approvalRes.data.length : 0);
       } catch (e) {
         console.error("Dashboard load error:", e);
       } finally {
@@ -165,6 +169,29 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </Link>
+        <Link href="/approval-queue">
+          <Card className="hover:shadow-md transition-shadow cursor-pointer group">
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center">
+                <ClipboardCheck className="w-5 h-5 text-orange-600" />
+              </div>
+              <div className="flex-1">
+                <p className="font-medium text-gray-900">Approval Queue</p>
+                <p className="text-xs text-gray-500">
+                  {pendingApprovalCount > 0
+                    ? `${pendingApprovalCount} awaiting review`
+                    : "All caught up"}
+                </p>
+              </div>
+              {pendingApprovalCount > 0 && (
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-100 text-orange-700 text-xs font-bold">
+                  {pendingApprovalCount}
+                </span>
+              )}
+              <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-orange-600 transition-colors" />
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       {/* Recent Applications */}
@@ -189,6 +216,7 @@ export default function DashboardPage() {
                   <tr className="border-b border-gray-100">
                     <th className="text-left py-3 px-2 font-medium text-gray-500">Job ID</th>
                     <th className="text-left py-3 px-2 font-medium text-gray-500">Status</th>
+                    <th className="text-left py-3 px-2 font-medium text-gray-500">Approval</th>
                     <th className="text-left py-3 px-2 font-medium text-gray-500">Applied</th>
                     <th className="text-left py-3 px-2 font-medium text-gray-500">Created</th>
                   </tr>
@@ -207,6 +235,19 @@ export default function DashboardPage() {
                         }`}>
                           {app.status}
                         </span>
+                      </td>
+                      <td className="py-3 px-2">
+                        {app.approval_status ? (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                            app.approval_status === "pending_approval" ? "bg-orange-100 text-orange-700" :
+                            app.approval_status === "approved" ? "bg-green-100 text-green-700" :
+                            "bg-gray-100 text-gray-600"
+                          }`}>
+                            {app.approval_status === "pending_approval" ? "awaiting" : app.approval_status}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
                       </td>
                       <td className="py-3 px-2 text-gray-600">{app.applied_at ? formatDate(app.applied_at) : "—"}</td>
                       <td className="py-3 px-2 text-gray-600">{formatDate(app.created_at)}</td>

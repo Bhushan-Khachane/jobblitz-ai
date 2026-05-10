@@ -8,6 +8,7 @@ export interface Application {
   job_listing_id: string;
   resume_id: string | null;
   status: string;
+  approval_status: string | null;
   cover_letter: string | null;
   error_message: string | null;
   screenshot_path: string | null;

@@ -12,6 +12,7 @@ import {
   Zap,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -21,6 +22,7 @@ const nav = [
   { href: "/profile", label: "My Profile", icon: User },
   { href: "/searches", label: "Job Searches", icon: Search },
   { href: "/applications", label: "Applications", icon: Briefcase },
+  { href: "/approval-queue", label: "Approval Queue", icon: ClipboardCheck },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/billing", label: "Billing", icon: CreditCard },
 ];

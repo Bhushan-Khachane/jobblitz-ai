@@ -68,6 +68,9 @@ export function getStatusColor(status: string): string {
     interview: "bg-green-100 text-green-700",
     rejected: "bg-red-100 text-red-700",
     failed: "bg-red-100 text-red-700",
+    skipped: "bg-gray-100 text-gray-600",
+    pending_approval: "bg-orange-100 text-orange-700",
+    approved: "bg-green-100 text-green-700",
   };
   return map[status.toLowerCase()] ?? "bg-gray-100 text-gray-700";
 }

@@ -95,6 +95,7 @@ interface Application {
   job_listing_id: string;
   resume_id: string | null;
   status: string;
+  approval_status: string | null;
   cover_letter: string | null;
   error_message: string | null;
   screenshot_path: string | null;
@@ -200,6 +201,15 @@ export const applicationsAPI = {
 
   updateStatus: (id: string, status: string) =>
     api.put<Application>(`/applications/${id}/status`, { status }).then((r) => r.data),
+
+  approvalQueue: () =>
+    api.get<Application[]>("/applications/approval-queue").then((r) => r.data),
+
+  approve: (id: string) =>
+    api.post<{ message: string; application_id: string }>(`/applications/${id}/approve`).then((r) => r.data),
+
+  reject: (id: string) =>
+    api.post<{ message: string; application_id: string }>(`/applications/${id}/reject`).then((r) => r.data),
 };
 
 // ── Analytics API ───────────────────────────────────────────────────────────

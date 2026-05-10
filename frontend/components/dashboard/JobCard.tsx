@@ -11,6 +11,7 @@ interface JobCardProps {
   platform: string;
   appliedDate?: string;
   status: string;
+  approvalStatus?: string | null;
   onClick?: () => void;
 }
 
@@ -22,9 +23,16 @@ const statusColors: Record<string, string> = {
   rejected: "bg-red-100 text-red-700",
   failed: "bg-red-100 text-red-700",
   accepted: "bg-emerald-100 text-emerald-700",
+  skipped: "bg-gray-100 text-gray-600",
 };
 
-export default function JobCard({ title, company, location, platform, appliedDate, status, onClick }: JobCardProps) {
+const approvalColors: Record<string, string> = {
+  pending_approval: "bg-orange-100 text-orange-700",
+  approved: "bg-green-100 text-green-700",
+  rejected: "bg-red-100 text-red-700",
+};
+
+export default function JobCard({ title, company, location, platform, appliedDate, status, approvalStatus, onClick }: JobCardProps) {
   return (
     <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={onClick}>
       <CardContent className="p-4">
@@ -44,10 +52,17 @@ export default function JobCard({ title, company, location, platform, appliedDat
             <span>{location}</span>
           </div>
         )}
-        <div className="flex items-center justify-between">
-          <Badge className={statusColors[status] || "bg-gray-100 text-gray-700"} variant="secondary">
-            {status}
-          </Badge>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <Badge className={statusColors[status] || "bg-gray-100 text-gray-700"} variant="secondary">
+              {status}
+            </Badge>
+            {approvalStatus && (
+              <Badge className={approvalColors[approvalStatus] || "bg-gray-100 text-gray-700"} variant="secondary">
+                {approvalStatus === "pending_approval" ? "awaiting approval" : approvalStatus}
+              </Badge>
+            )}
+          </div>
           {appliedDate && (
             <span className="text-[10px] text-gray-400">
               {new Date(appliedDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
