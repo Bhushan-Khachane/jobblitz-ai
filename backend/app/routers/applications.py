@@ -14,7 +14,6 @@ from app.dependencies import get_current_user, rate_limiter
 from app.models import Application, Credential, JobListing, Profile, Resume, User
 from app.schemas import ApplicationResponse, ApplicationStatusUpdate, ApplyRequest
 from app.workers.tasks import auto_apply_task
-from app.services.agent_service import apply_to_job_with_agent
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -45,6 +44,12 @@ async def apply_to_job_endpoint(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Apply to a job listing. Creates an application record and dispatches a background task.
+
+    For assisted mode users, the application is created with approval_status='pending_approval'.
+    For auto mode users, the task is dispatched immediately.
+    Returns the application record immediately — status updates happen asynchronously.
+    """
     # Rate limit check
     await rate_limiter.check(user.id)
 
@@ -79,90 +84,70 @@ async def apply_to_job_endpoint(
     if not credential:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"No active {listing.platform} credentials found")
 
-    # Get profile
-    prof_result = await db.execute(select(Profile).where(Profile.user_id == user.id))
-    profile = prof_result.scalar_one_or_none()
-    profile_dict = _profile_to_dict(profile, user)
-
     # Get resume
-    resume_path = None
     resume_id = body.resume_id
-    if resume_id:
-        res_result = await db.execute(select(Resume).where(Resume.id == resume_id, Resume.user_id == user.id))
-        resume = res_result.scalar_one_or_none()
-        if resume:
-            resume_path = resume.file_path
-    else:
-        # Use default resume
+    if not resume_id:
         res_result = await db.execute(select(Resume).where(Resume.user_id == user.id, Resume.is_default == True))
         resume = res_result.scalar_one_or_none()
         if resume:
-            resume_path = resume.file_path
             resume_id = resume.id
 
-    if not resume_path:
+    if not resume_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No resume found. Upload one first.")
 
+    # Determine application mode
+    application_mode = getattr(user, "application_mode", "assisted") or "assisted"
+
     # Create application record
+    if application_mode == "manual":
+        # Manual mode: just create a record, user applies themselves
+        application = Application(
+            user_id=user.id,
+            job_listing_id=job_listing_id,
+            resume_id=resume_id,
+            status="pending",
+            approval_status=None,
+        )
+        db.add(application)
+        listing.status = "applied"
+        await db.commit()
+        await db.refresh(application)
+        return application
+
+    if application_mode == "assisted":
+        # Assisted mode: create with pending_approval, user must approve before apply
+        application = Application(
+            user_id=user.id,
+            job_listing_id=job_listing_id,
+            resume_id=resume_id,
+            status="pending",
+            approval_status="pending_approval",
+        )
+        db.add(application)
+        listing.status = "discovered"  # Keep as discovered until approved
+        await db.commit()
+        await db.refresh(application)
+        return application
+
+    # Auto mode: dispatch the background task immediately
     application = Application(
         user_id=user.id,
         job_listing_id=job_listing_id,
         resume_id=resume_id,
         status="pending",
+        approval_status="approved",
     )
     db.add(application)
     listing.status = "applied"
     await db.commit()
     await db.refresh(application)
 
-    # Run application
-    try:
-        success = False
-        error = None
-        screenshot_path = None
-        answers = {}
-        async for event in apply_to_job_with_agent(
-            user_id=user.id,
-            platform=listing.platform,
-            username=credential.username,
-            encrypted_password=credential.encrypted_password,
-            job_url=listing.apply_url or "",
-            profile=profile_dict,
-            resume_path=resume_path,
-        ):
-            if event.get("event") == "complete":
-                success = event.get("success", False)
-                error = None if success else event.get("result")
-                screenshot_path = event.get("screenshot_path")
-            elif event.get("event") == "error":
-                success = False
-                error = event.get("result")
-                screenshot_path = event.get("screenshot_path")
-    except Exception as e:
-        success = False
-        error = str(e)
-        screenshot_path = None
-        answers = {}
-
-    # Update application
-    if success:
-        application.status = "submitted"
-        application.applied_at = datetime.now(timezone.utc)
-        listing.status = "applied"
-    else:
-        if application.retry_count < 1:
-            application.retry_count += 1
-            application.error_message = error
-            application.status = "pending"  # Will be retried
-        else:
-            application.status = "failed"
-            application.error_message = error
-            listing.status = "failed"
-
-    application.screenshot_path = screenshot_path
-    application.answers_used = answers
-    await db.commit()
-    await db.refresh(application)
+    # Dispatch background task
+    auto_apply_task.delay(
+        user_id=str(user.id),
+        job_listing_id=str(job_listing_id),
+        resume_id=str(resume_id),
+    )
 
     # Increment rate limiter
     await rate_limiter.increment(user.id)

@@ -51,13 +51,16 @@ async def get_current_user(
 
 
 class RateLimiter:
-    """Redis sliding-window rate limiter: per-user hour and day limits."""
+    """Redis sliding-window rate limiter: per-user hour and day limits.
+    Uses atomic Lua script for check+increment to prevent race conditions.
+    """
 
     def __init__(self, max_per_hour: int = 20, max_per_day: int = 100):
         self.max_per_hour = max_per_hour
         self.max_per_day = max_per_day
 
     async def check(self, user_id: uuid.UUID) -> None:
+        """Check rate limit without incrementing. Returns or raises 429."""
         r = await _get_redis()
         now = datetime.now(timezone.utc)
         hour_key = f"rl:{user_id}:hour:{now.strftime('%Y%m%d%H')}"
@@ -77,7 +80,68 @@ class RateLimiter:
                 detail=f"Rate limit exceeded: max {self.max_per_day} applications per day",
             )
 
+    async def check_and_increment(self, user_id: uuid.UUID) -> None:
+        """Atomically check rate limit and increment counters using Lua script.
+        This prevents race conditions where concurrent requests both pass the check
+        before either increments.
+        """
+        r = await _get_redis()
+        now = datetime.now(timezone.utc)
+        hour_key = f"rl:{user_id}:hour:{now.strftime('%Y%m%d%H')}"
+        day_key = f"rl:{user_id}:day:{now.strftime('%Y%m%d')}"
+
+        # Atomic check-and-increment via Lua script
+        lua_script = """
+        local hour_key = KEYS[1]
+        local day_key = KEYS[2]
+        local max_hour = tonumber(ARGV[1])
+        local max_day = tonumber(ARGV[2])
+        local hour_ttl = tonumber(ARGV[3])
+        local day_ttl = tonumber(ARGV[4])
+
+        local hour_count = tonumber(redis.call('GET', hour_key) or '0')
+        local day_count = tonumber(redis.call('GET', day_key) or '0')
+
+        if hour_count >= max_hour then
+            return {0, hour_count, day_count, 'hour'}
+        end
+        if day_count >= max_day then
+            return {0, hour_count, day_count, 'day'}
+        end
+
+        -- Both checks passed, increment atomically
+        redis.call('INCR', hour_key)
+        redis.call('EXPIRE', hour_key, hour_ttl)
+        redis.call('INCR', day_key)
+        redis.call('EXPIRE', day_key, day_ttl)
+
+        return {1, hour_count + 1, day_count + 1, 'ok'}
+        """
+
+        result = await r.eval(
+            lua_script, 2,
+            hour_key, day_key,
+            str(self.max_per_hour), str(self.max_per_day),
+            str(3600), str(86400),
+        )
+
+        allowed = result[0]
+        limit_type = result[3]
+
+        if not allowed:
+            if limit_type == "hour":
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Rate limit exceeded: max {self.max_per_hour} applications per hour",
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Rate limit exceeded: max {self.max_per_day} applications per day",
+                )
+
     async def increment(self, user_id: uuid.UUID) -> None:
+        """Non-atomic increment for cases where check was already done separately."""
         r = await _get_redis()
         now = datetime.now(timezone.utc)
         hour_key = f"rl:{user_id}:hour:{now.strftime('%Y%m%d%H')}"
