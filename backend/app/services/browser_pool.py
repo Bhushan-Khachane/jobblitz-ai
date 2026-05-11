@@ -13,7 +13,7 @@ from typing import Any
 
 from playwright.async_api import Browser, BrowserContext, Playwright, async_playwright
 
-from app.config.proxy import get_proxy
+from app.config import get_proxy
 
 logger = logging.getLogger(__name__)
 

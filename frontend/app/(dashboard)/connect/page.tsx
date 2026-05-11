@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Linkedin, Briefcase } from "lucide-react";
 import api from "@/lib/api";
 import PlatformStatusPill from "@/components/dashboard/PlatformStatusPill";
@@ -37,6 +37,18 @@ export default function ConnectPage() {
   } | null>(null);
   const [connectedPlatforms, setConnectedPlatforms] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    api.get("/credentials/")
+      .then(({ data }) => {
+        const connected: Record<string, boolean> = {};
+        (data as { platform: string; is_active: boolean }[]).forEach((c) => {
+          if (c.is_active) connected[c.platform] = true;
+        });
+        setConnectedPlatforms(connected);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleConnect = async (platform: string) => {
     setErrors((e) => ({ ...e, [platform]: "" }));

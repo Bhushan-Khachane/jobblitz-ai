@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -20,6 +21,7 @@ import { useState } from "react";
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/profile", label: "My Profile", icon: User },
+  { href: "/connect", label: "Connect Accounts", icon: Link2 },
   { href: "/searches", label: "Job Searches", icon: Search },
   { href: "/applications", label: "Applications", icon: Briefcase },
   { href: "/approval-queue", label: "Approval Queue", icon: ClipboardCheck },

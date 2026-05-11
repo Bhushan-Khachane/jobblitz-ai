@@ -62,3 +62,45 @@ settings = Settings()
 # Ensure directories exist
 Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 Path(settings.SCREENSHOT_DIR).mkdir(parents=True, exist_ok=True)
+
+
+# ── Proxy helpers ─────────────────────────────────────────────────────────────
+
+def get_proxy(task_type: str, user_tier: str = "free") -> str | None:
+    """Return proxy URL for a task type and user tier.
+
+    Discovery tasks use cheap datacenter proxies.
+    Apply tasks use residential proxies for pro users.
+    """
+    if not settings.PROXY_ENABLED:
+        return None
+    discovery_types = {"naukri_scrape", "linkedin_scrape", "job_discovery"}
+    if task_type in discovery_types:
+        return _get_datacenter_proxy()
+    if user_tier == "pro" and settings.PROXY_RESIDENTIAL_URL:
+        return _get_residential_proxy()
+    return _get_datacenter_proxy()
+
+
+def _get_datacenter_proxy() -> str | None:
+    urls = settings.PROXY_DATACENTER_URLS
+    if not urls:
+        return None
+    proxy_list = [u.strip() for u in urls.split(",") if u.strip()]
+    return proxy_list[0] if proxy_list else None
+
+
+def _get_residential_proxy() -> str | None:
+    url = settings.PROXY_RESIDENTIAL_URL
+    if not url:
+        return None
+    user = settings.PROXY_RESIDENTIAL_USER
+    passwd = settings.PROXY_RESIDENTIAL_PASS
+    if user and passwd and "@" not in url:
+        if url.startswith("http://"):
+            url = f"http://{user}:{passwd}@{url[7:]}"
+        elif url.startswith("https://"):
+            url = f"https://{user}:{passwd}@{url[8:]}"
+        elif url.startswith("socks5://"):
+            url = f"socks5://{user}:{passwd}@{url[9:]}"
+    return url

@@ -114,4 +114,4 @@ async def trigger_search(
         search_id=str(search_id),
     )
     await redis_pool.close()
-    return {"message": f"Job discovery triggered for search '{search.name}'", "job_id": job.job_id if job else None}
+    return {"message": f"Job discovery triggered for search '{search.name}'", "task_id": job.job_id if job else None}

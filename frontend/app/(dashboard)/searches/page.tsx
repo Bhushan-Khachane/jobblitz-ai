@@ -44,7 +44,7 @@ export default function SearchesPage() {
   const [error, setError] = useState<string | null>(null);
   const [hasCredentials, setHasCredentials] = useState(true);
   const [running, setRunning] = useState<string | null>(null);
-  const [triggerMsg, setTriggerMsg] = useState<string>("");
+  const [triggerMsgs, setTriggerMsgs] = useState<Record<string, string>>({});
 
   const fetchSearches = useCallback(async () => {
     try {
@@ -130,13 +130,14 @@ export default function SearchesPage() {
 
   const handleTrigger = async (id: string) => {
     setRunning(id);
-    setTriggerMsg("");
+    setTriggerMsgs((m) => ({ ...m, [id]: "" }));
     try {
       const { data } = await api.post(`/job-searches/${id}/trigger`);
-      setTriggerMsg(`✓ Discovery started! Task ID: ${data.task_id}`);
-      setTimeout(() => setTriggerMsg(""), 8000);
+      const tid = data.task_id || data.job_id || "queued";
+      setTriggerMsgs((m) => ({ ...m, [id]: `✓ Discovery started! (${typeof tid === "string" ? tid.slice(0, 8) : tid}...)` }));
+      setTimeout(() => setTriggerMsgs((m) => ({ ...m, [id]: "" })), 8000);
     } catch (e: any) {
-      setTriggerMsg(e.response?.data?.detail || "Failed to trigger search");
+      setTriggerMsgs((m) => ({ ...m, [id]: e.response?.data?.detail || "Failed to trigger search" }));
     } finally {
       setRunning(null);
     }
@@ -156,14 +157,6 @@ export default function SearchesPage() {
               <a href="/profile" className="underline font-medium">Add credentials</a> to enable automatic job applications.
             </p>
           </div>
-        </div>
-      )}
-
-      {triggerMsg && (
-        <div className={`p-3 rounded-lg text-sm border ${triggerMsg.startsWith("✓")
-          ? "bg-green-500/10 border-green-500/20 text-green-400"
-          : "bg-red-500/10 border-red-500/20 text-red-400"}`}>
-          {triggerMsg}
         </div>
       )}
 
@@ -269,6 +262,11 @@ export default function SearchesPage() {
                     </Button>
                   </div>
                 </div>
+                {triggerMsgs[s.id] && (
+                  <p className={`text-xs mt-2 ${triggerMsgs[s.id].startsWith("✓") ? "text-green-400" : "text-red-400"}`}>
+                    {triggerMsgs[s.id]}
+                  </p>
+                )}
               </CardContent>
             </Card>
           ))}
