@@ -36,8 +36,10 @@ export default function ConnectPage() {
     expiresAt: string;
   } | null>(null);
   const [connectedPlatforms, setConnectedPlatforms] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleConnect = async (platform: string) => {
+    setErrors((e) => ({ ...e, [platform]: "" }));
     try {
       const res = await api.post(`/login-sessions?platform=${platform}`);
       const data = res.data;
@@ -48,8 +50,11 @@ export default function ConnectPage() {
         containerId: data.container_id,
         expiresAt: data.expires_at,
       });
-    } catch (err) {
-      console.error("Failed to create session:", err);
+    } catch (err: any) {
+      setErrors((e) => ({
+        ...e,
+        [platform]: err.response?.data?.detail || "Failed to create session. Is Docker running?",
+      }));
     }
   };
 
@@ -95,12 +100,17 @@ export default function ConnectPage() {
                       </button>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => handleConnect(platform.id)}
-                      className="px-4 py-2 bg-primary-500 text-primary-foreground rounded-lg hover:bg-primary-600 transition-colors text-sm font-medium"
-                    >
-                      Connect {platform.name}
-                    </button>
+                    <div>
+                      <button
+                        onClick={() => handleConnect(platform.id)}
+                        className="px-4 py-2 bg-primary-500 text-primary-foreground rounded-lg hover:bg-primary-600 transition-colors text-sm font-medium"
+                      >
+                        Connect {platform.name}
+                      </button>
+                      {errors[platform.id] && (
+                        <p className="mt-2 text-xs text-red-400">{errors[platform.id]}</p>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

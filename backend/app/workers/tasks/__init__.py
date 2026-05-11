@@ -62,11 +62,17 @@ def _build_keywords(profile: Profile | None, search_keywords: str) -> str:
 # ── ARQ Task Functions ──────────────────────────────────────────────────────────
 
 
-async def discover_jobs(ctx: dict) -> dict:
-    """Discover jobs for all active searches. Runs every 2 hours via ARQ cron."""
+async def discover_jobs(ctx: dict, user_id: str | None = None, search_id: str | None = None) -> dict:
+    """Discover jobs for all active searches. Runs every 2 hours via ARQ cron.
+    When user_id and/or search_id are provided, only those searches are processed."""
     total_discovered = 0
     async with _async_session() as db:
-        result = await db.execute(select(JobSearch).where(JobSearch.is_active == True))
+        query = select(JobSearch).where(JobSearch.is_active == True)
+        if user_id:
+            query = query.where(JobSearch.user_id == uuid.UUID(user_id))
+        if search_id:
+            query = query.where(JobSearch.id == uuid.UUID(search_id))
+        result = await db.execute(query)
         searches = result.scalars().all()
 
         for search in searches:

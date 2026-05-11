@@ -106,8 +106,12 @@ async def trigger_search(
     if not search.is_active:
         raise HTTPException(status_code=400, detail="Search is paused. Enable it first.")
 
-    # Dispatch the discovery task via ARQ
+    # Dispatch the discovery task via ARQ with specific search filters
     redis_pool = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
-    job = await redis_pool.enqueue_job("discover_jobs")
+    job = await redis_pool.enqueue_job(
+        "discover_jobs",
+        user_id=str(user.id),
+        search_id=str(search_id),
+    )
     await redis_pool.close()
     return {"message": f"Job discovery triggered for search '{search.name}'", "job_id": job.job_id if job else None}

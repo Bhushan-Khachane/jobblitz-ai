@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Save, Plus, X, Eye, EyeOff, Shield, CheckCircle, ChevronDown, ChevronUp, Puzzle, Zap } from "lucide-react";
+import { Save, Plus, X, Shield, CheckCircle, ChevronDown, ChevronUp, Puzzle, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,20 +38,17 @@ export default function ProfilePage() {
   const [success, setSuccess] = useState("");
 
   const [credentials, setCredentials] = useState<any[]>([]);
-  const [activeMethod, setActiveMethod] = useState<"cookie" | "password" | null>(null);
+  const [activeMethod, setActiveMethod] = useState<"cookie" | null>(null);
   const [credForm, setCredForm] = useState<{
     platform: string;
     username: string;
-    password: string;
     session_cookie: string;
   }>({
     platform: "linkedin",
     username: "",
-    password: "",
     session_cookie: "",
   });
   const [credSaving, setCredSaving] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [credError, setCredError] = useState("");
   const [applyMode, setApplyMode] = useState<string>("manual");
   const [modeSaving, setModeSaving] = useState(false);
@@ -144,14 +141,10 @@ export default function ProfilePage() {
     setResumes(res.data || []);
   };
 
-  const handleAddCredential = async (method: "cookie" | "password") => {
+  const handleAddCredential = async (method: "cookie") => {
     setCredError("");
     if (!credForm.username) {
       setCredError("Email is required");
-      return;
-    }
-    if (method === "password" && !credForm.password) {
-      setCredError("Password is required");
       return;
     }
     if (method === "cookie" && !credForm.session_cookie) {
@@ -163,13 +156,12 @@ export default function ProfilePage() {
       const payload = {
         platform: credForm.platform,
         username: credForm.username,
-        password: method === "password" ? credForm.password : undefined,
-        session_cookie: method === "cookie" ? credForm.session_cookie : undefined,
+        session_cookie: credForm.session_cookie,
       };
       await api.post("/credentials/", payload);
       const res = await api.get("/credentials/");
       setCredentials(res.data || []);
-      setCredForm({ platform: "linkedin", username: "", password: "", session_cookie: "" });
+      setCredForm({ platform: "linkedin", username: "", session_cookie: "" });
       setActiveMethod(null);
     } catch (e: any) {
       setCredError(e.response?.data?.detail || "Failed to save credentials");
@@ -565,103 +557,12 @@ export default function ProfilePage() {
             )}
           </div>
 
-          {/* Method 3: Password */}
-          <div className="border border-border rounded-xl overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setActiveMethod(activeMethod === "password" ? null : "password")}
-              className="w-full p-4 flex items-center justify-between bg-muted/50 hover:bg-muted transition-colors text-left"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-red-500/10 rounded-lg flex items-center justify-center">
-                  <Shield className="w-5 h-5 text-red-500" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground">Password</p>
-                  <p className="text-xs text-muted-foreground">Last resort, higher ban risk</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge className="bg-red-500/15 text-red-400 hover:bg-red-500/15">Higher Ban Risk</Badge>
-                {activeMethod === "password" ? (
-                  <ChevronUp className="w-4 h-4 text-muted-foreground/70" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-muted-foreground/70" />
-                )}
-              </div>
-            </button>
-            {activeMethod === "password" && (
-              <div className="p-4 space-y-4">
-                {credError && (
-                  <div className="p-3 bg-red-500/10 border border-red-200 rounded-lg text-sm text-red-600">{credError}</div>
-                )}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label>Platform</Label>
-                    <select
-                      className="mt-1 w-full rounded-md border border-gray-300 bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      value={credForm.platform}
-                      onChange={(e) => setCredForm({ ...credForm, platform: e.target.value })}
-                    >
-                      <option value="linkedin">LinkedIn</option>
-                      <option value="naukri">Naukri</option>
-                    </select>
-                  </div>
-                  <div>
-                    <Label>Account Email</Label>
-                    <Input
-                      type="email"
-                      placeholder="you@email.com"
-                      value={credForm.username}
-                      onChange={(e) => setCredForm({ ...credForm, username: e.target.value })}
-                      className="mt-1"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label>Password</Label>
-                  <div className="relative mt-1">
-                    <Input
-                      type={showPassword ? "text" : "password"}
-                      placeholder="Your account password"
-                      value={credForm.password}
-                      onChange={(e) => setCredForm({ ...credForm, password: e.target.value })}
-                      className="pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/70 hover:text-muted-foreground"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-                <div className="p-3 bg-red-500/10 border border-red-100 rounded-lg text-xs text-red-400 flex gap-2">
-                  <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <span>
-                    Using your password increases the chance of account restrictions. We strongly recommend using a dedicated job-search account.
-                    Your password is encrypted with AES-256 before storage.
-                  </span>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => handleAddCredential("password")}
-                  disabled={credSaving}
-                >
-                  {credSaving ? "Connecting..." : "Connect Account"}
-                </Button>
-              </div>
-            )}
-          </div>
-
           {/* Security note */}
           <div className="p-3 bg-background border border-border rounded-lg text-xs text-muted-foreground flex gap-2">
             <Shield className="w-4 h-4 flex-shrink-0 mt-0.5 text-muted-foreground/70" />
             <span>
-              JobBlitz uses AES-256 encryption to store your credentials and only uses them to log in
-              via secure browser automation. LinkedIn and Naukri do not offer third-party OAuth for job applications.
+              JobBlitz never stores your password. We use secure cloud browser sessions to connect your accounts,
+              and only session cookies are saved (encrypted with AES-256). LinkedIn and Naukri do not offer third-party OAuth for job applications.
             </span>
           </div>
         </CardContent>

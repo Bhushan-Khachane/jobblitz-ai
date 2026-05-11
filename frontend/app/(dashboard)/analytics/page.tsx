@@ -17,6 +17,7 @@ interface Overview {
   total_jobs_discovered: number;
   counts_by_status: { status: string; count: number }[];
   success_rate: number;
+  platform_counts: { platform: string; count: number }[];
 }
 
 interface DailyStat {
@@ -69,11 +70,12 @@ export default function AnalyticsPage() {
     value: s.count,
   }));
 
-  // Platform breakdown from daily data (mock split: 60% linkedin, 40% naukri)
-  const platformData = [
-    { name: "LinkedIn", value: Math.round((overview?.total_applications || 0) * 0.6) },
-    { name: "Naukri", value: Math.round((overview?.total_applications || 0) * 0.4) },
-  ];
+  // Platform breakdown from real API data
+  const platformData = (overview?.platform_counts || []).map((p) => ({
+    name: p.platform.charAt(0).toUpperCase() + p.platform.slice(1),
+    value: p.count,
+  }));
+  const chartData = platformData.length > 0 ? platformData : [{ name: "No data", value: 1 }];
 
   const totalApplied = overview?.total_applications || 0;
   const interviewCount = overview?.counts_by_status?.find((c) => c.status === "interview")?.count || 0;
@@ -150,7 +152,7 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={platformData}>
+              <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 11 }} />

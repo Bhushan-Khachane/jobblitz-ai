@@ -42,11 +42,27 @@ async def overview(
     submitted = sum(c.count for c in counts if c.status == "submitted")
     success_rate = (submitted / total_apps * 100) if total_apps > 0 else 0.0
 
+    # Platform breakdown
+    platform_result = await db.execute(
+        select(
+            JobListing.platform,
+            func.count(Application.id).label("count"),
+        )
+        .join(Application, Application.job_listing_id == JobListing.id)
+        .where(Application.user_id == user.id)
+        .group_by(JobListing.platform)
+    )
+    platform_counts = [
+        {"platform": row.platform, "count": row.count}
+        for row in platform_result.all()
+    ]
+
     return OverviewResponse(
         total_applications=total_apps,
         total_jobs_discovered=total_jobs,
         counts_by_status=counts,
         success_rate=round(success_rate, 2),
+        platform_counts=platform_counts,
     )
 
 

@@ -256,6 +256,7 @@ class OverviewResponse(BaseModel):
     total_jobs_discovered: int
     counts_by_status: list[StatusCount]
     success_rate: float
+    platform_counts: list[dict] = []
 
 
 class DailyStat(BaseModel):

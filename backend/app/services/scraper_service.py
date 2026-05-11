@@ -42,6 +42,9 @@ async def scrape_linkedin_jobs(
     data_dir = str(user_data_dir) if user_data_dir else str(Path(settings.UPLOAD_DIR) / ".linkedin_ctx")
 
     from app.services.scraper_browser import scraper_browser
+    import logging
+    logger = logging.getLogger(__name__)
+
     context = await scraper_browser.get_context("linkedin", data_dir)
 
     page: Page = await context.new_page()
@@ -50,13 +53,37 @@ async def scrape_linkedin_jobs(
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         await _random_delay(2, 4)
 
-        cards = await page.query_selector_all(".job-search-card")
+        # Try 2026 selectors first, then fall back to legacy selectors
+        cards = await page.query_selector_all("li.jobs-search-results__list-item")
+        if not cards:
+            cards = await page.query_selector_all(".job-card-container")
+        if not cards:
+            cards = await page.query_selector_all(".job-search-card")
+        if not cards:
+            logger.warning("LinkedIn scraper found 0 cards — selectors may be outdated")
+            return results
+
         for card in cards[:max_results]:
             try:
-                title_el = await card.query_selector(".base-search-card__title")
-                company_el = await card.query_selector(".base-search-card__subtitle a")
-                location_el = await card.query_selector(".job-search-card__location")
-                link_el = await card.query_selector("a.base-card__full-link")
+                # Try 2026 selectors first, then legacy
+                title_el = (
+                    await card.query_selector(".job-card-list__title")
+                    or await card.query_selector(".job-card-container__link span[aria-hidden='true']")
+                    or await card.query_selector(".base-search-card__title")
+                )
+                company_el = (
+                    await card.query_selector(".job-card-container__primary-description")
+                    or await card.query_selector(".base-search-card__subtitle a")
+                )
+                location_el = (
+                    await card.query_selector(".job-card-container__metadata-wrapper li")
+                    or await card.query_selector(".job-search-card__location")
+                )
+                link_el = (
+                    await card.query_selector("a.job-card-container__link")
+                    or await card.query_selector("a.job-card-list__title")
+                    or await card.query_selector("a.base-card__full-link")
+                )
                 date_el = await card.query_selector("time")
 
                 title = (await title_el.inner_text()).strip() if title_el else ""
@@ -173,5 +200,30 @@ async def scrape_naukri_jobs(
                 continue
     finally:
         await page.close()
+
+    # Fetch full description for top jobs by visiting detail pages
+    if results:
+        for result in results[:10]:
+            if not result.get("apply_url"):
+                continue
+            try:
+                detail_page = await context.new_page()
+                await detail_page.goto(result["apply_url"], wait_until="domcontentloaded", timeout=15000)
+                await _random_delay(0.5, 1.5)
+                desc_el = (
+                    await detail_page.query_selector(".styles_job-desc-cont__Y0bHB")
+                    or await detail_page.query_selector(".jd-desc")
+                    or await detail_page.query_selector(".job-description")
+                )
+                if desc_el:
+                    full_desc = (await desc_el.inner_text()).strip()[:2000]
+                    if full_desc and len(full_desc) > len(result.get("description", "")):
+                        result["description"] = full_desc
+                await detail_page.close()
+            except Exception:
+                try:
+                    await detail_page.close()
+                except Exception:
+                    pass
 
     return results
