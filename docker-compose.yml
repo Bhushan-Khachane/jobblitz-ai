@@ -70,7 +70,6 @@ services:
       - redis
       - backend
     volumes:
-      - ./backend:/app
       - uploads_data:/app/uploads
       - screenshots_data:/app/screenshots
       - /var/run/docker.sock:/var/run/docker.sock

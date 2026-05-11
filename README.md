@@ -7,7 +7,8 @@
 ### Prerequisites
 
 - Docker & Docker Compose installed
-- OpenRouter API key (for AI features)
+- Gemini API key (for AI features) — free at [aistudio.google.com](https://aistudio.google.com)
+- Supabase project (free tier works) — for Auth, Realtime, and Storage
 
 ### Setup
 
@@ -25,13 +26,18 @@
    # Edit backend/.env and fill in:
    # - SECRET_KEY (generate: python3 -c "import secrets; print(secrets.token_hex(32))")
    # - FERNET_KEY (generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-   # - OPENROUTER_API_KEY
+   # - GEMINI_API_KEY  (primary AI — free at aistudio.google.com)
+   # - SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+   # - SUPABASE_JWT_SECRET
    ```
 
 3. **Configure frontend**
 
    ```bash
-   echo "NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1" > frontend/.env
+   cp frontend/.env.example frontend/.env
+   # Edit frontend/.env and fill in:
+   # - NEXT_PUBLIC_SUPABASE_URL
+   # - NEXT_PUBLIC_SUPABASE_ANON_KEY
    ```
 
 4. **Start everything**
@@ -43,59 +49,59 @@
 
 ### Services
 
-| Service          | URL                            | Description            |
-| ---------------- | ------------------------------ | ---------------------- |
-| Frontend         | http://localhost:3000           | Next.js UI             |
-| Backend API      | http://localhost:8000           | FastAPI                 |
-| API Docs         | http://localhost:8000/docs      | Swagger UI              |
-| Flower Monitor   | http://localhost:5555           | Celery task monitor     |
-| Health Check     | http://localhost:8000/health/detailed | System health    |
+| Service          | URL                                   | Description            |
+| ---------------- | ------------------------------------- | ---------------------- |
+| Frontend         | http://localhost:3001                  | Next.js UI             |
+| Backend API      | http://localhost:8000                  | FastAPI                |
+| API Docs         | http://localhost:8000/docs             | Swagger UI             |
+| Health Check     | http://localhost:8000/health/           | System health          |
+| Health (detailed)| http://localhost:8000/health/detailed  | DB + Redis + queue     |
 
 ## Architecture
 
 - **Frontend**: Next.js 14 + TypeScript + Tailwind + shadcn/ui
 - **Backend**: FastAPI + SQLAlchemy async + PostgreSQL
-- **Workers**: Celery + Redis (auto-apply every 30 min, discover jobs every 2 hours)
-- **AI**: OpenRouter API (cover letters, form Q&A, resume tailoring)
-- **Automation**: Playwright + stealth (LinkedIn & Naukri)
+- **Workers**: ARQ (async Redis queue) — discovers jobs every 2 hours, auto-applies every 30 min
+- **AI**: Google Gemini (primary) + OpenAI GPT-4o-mini (fallback) for cover letters, Q&A, resume tailoring
+- **Automation**: Playwright + stealth (LinkedIn Easy Apply & Naukri direct apply)
+- **Cloud Browser**: Neko — zero-password architecture, users log in via secure streaming browser
 
 ## How It Works
 
-1. Register → upload resume → set job preferences → add LinkedIn/Naukri credentials
-2. Create job searches (keywords, location, platform)
-3. Celery discovers jobs every 2 hours automatically
-4. Celery auto-applies to discovered jobs every 30 minutes
-5. Track applications in Kanban dashboard
+1. Upload your resume and set job preferences
+2. Connect LinkedIn/Naukri via secure cloud browser (your password never touches our servers)
+3. JobBlitz discovers matching jobs every 2 hours using AI scoring
+4. In **Assisted mode**: review and approve applications before they're submitted
+5. In **Auto mode**: applications submitted automatically with human-like behavior
 
 ## Project Structure
 
 ```
-├── backend/               # FastAPI + Celery + Playwright
+├── backend/               # FastAPI + ARQ + Playwright
 │   ├── app/
 │   │   ├── routers/       # API endpoints
-│   │   ├── models.py      # SQLAlchemy models
-│   │   ├── schemas.py     # Pydantic schemas
-│   │   ├── config.py      # Settings (env-based)
-│   │   ├── workers/       # Celery tasks & beat schedule
-│   │   └── services/      # Business logic (scraper, AI, apply)
-│   └── alembic/           # Database migrations
-├── frontend/              # Next.js 14 + Tailwind + shadcn/ui
-│   ├── app/               # App router pages
-│   ├── components/        # UI components
-│   ├── hooks/             # React hooks (useAuth context)
-│   └── lib/               # Utilities & API client
-├── docker-compose.yml     # All services orchestrated
-└── scripts/               # Startup & utility scripts
+│   │   ├── services/      # Scraper, apply, matching, AI services
+│   │   ├── workers/       # ARQ tasks & cron schedule
+│   │   └── models.py      # SQLAlchemy ORM models
+│   ├── alembic/           # Database migrations
+│   └── scripts/           # Smoke test & utilities
+├── frontend/              # Next.js 14 app
+│   ├── app/               # App Router pages
+│   ├── components/        # Reusable UI components
+│   └── hooks/             # React hooks (Supabase Realtime)
+├── docker/                # Neko cloud browser Dockerfile
+├── scripts/               # Startup scripts
+└── docker-compose.yml     # Full stack orchestration
 ```
 
-## Environment Variables
+## Pricing
 
-See [`backend/.env.example`](backend/.env.example) for all required and optional variables.
-
-**Required** (app won't start without these):
-- `DATABASE_URL` — PostgreSQL async connection string
-- `SECRET_KEY` — JWT signing secret (32+ chars)
-- `FERNET_KEY` — Encryption key for stored credentials
+| Plan       | Price      | Daily Applies |
+|------------|------------|---------------|
+| Free       | ₹0         | 10/day        |
+| Starter    | ₹499/mo    | 25/day        |
+| Pro        | ₹999/mo    | 50/day        |
+| Unlimited  | ₹1,999/mo  | 100/day       |
 
 ## License
 
