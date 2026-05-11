@@ -14,6 +14,12 @@ if [ ! -f frontend/.env ]; then
   echo "NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1" > frontend/.env
 fi
 
+# Ensure NEXT_PUBLIC_API_URL is set
+if ! grep -q "NEXT_PUBLIC_API_URL" frontend/.env 2>/dev/null; then
+  echo "NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1" >> frontend/.env
+  echo "  ✓ Set NEXT_PUBLIC_API_URL in frontend/.env"
+fi
+
 # Pull latest images
 docker compose pull redis postgres
 

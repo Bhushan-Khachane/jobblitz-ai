@@ -98,7 +98,7 @@ async def discover_jobs(ctx: dict, user_id: str | None = None, search_id: str | 
                 logger.info(f"Starting job discovery for search {search_id} (user {user_id}): platform={search.platform}, keywords='{keywords}', location={search.location}")
 
                 jobs: list[dict] = []
-                if search.platform in ("linkedin", "both"):
+                if search.platform == "linkedin":
                     logger.info(f"Scraping LinkedIn jobs for '{keywords}' in {search.location or 'anywhere'}...")
                     linkedin_jobs = await scrape_linkedin_jobs(
                         keywords=keywords,
@@ -109,7 +109,7 @@ async def discover_jobs(ctx: dict, user_id: str | None = None, search_id: str | 
                     logger.info(f"LinkedIn scraper found {len(linkedin_jobs)} jobs")
                     jobs.extend(linkedin_jobs)
 
-                if search.platform in ("naukri", "both"):
+                elif search.platform == "naukri":
                     logger.info(f"Scraping Naukri jobs for '{keywords}' in {search.location or 'anywhere'}...")
                     naukri_jobs = await scrape_naukri_jobs(
                         keywords=keywords,
@@ -118,6 +118,10 @@ async def discover_jobs(ctx: dict, user_id: str | None = None, search_id: str | 
                     )
                     logger.info(f"Naukri scraper found {len(naukri_jobs)} jobs")
                     jobs.extend(naukri_jobs)
+
+                else:
+                    logger.warning(f"Scraper for platform '{search.platform}' not yet implemented — skipping search {search_id}")
+                    continue
 
                 logger.info(f"Total jobs found for search {search_id}: {len(jobs)}")
 
@@ -621,7 +625,3 @@ async def batch_auto_apply(ctx: dict) -> dict:
             raise
 
     return {"dispatched": dispatched, "queued_for_approval": queued_for_approval}
-
-
-# Re-export cleanup_sessions from submodule
-from app.workers.tasks.cleanup_sessions import cleanup_sessions  # noqa: E402

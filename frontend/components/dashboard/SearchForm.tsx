@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 
 const schema = z.object({
   name: z.string().min(1, "Name is required"),
-  platform: z.enum(["linkedin", "naukri", "both"]),
+  platform: z.enum(["linkedin", "naukri", "shine", "unstop", "wellfound", "internshala"]),
   keywords: z.string().min(1, "Keywords are required"),
   location: z.string().optional(),
   experience_level: z.string().optional(),
@@ -38,7 +38,7 @@ export default function SearchForm({ onSubmit, defaultValues, loading }: SearchF
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      platform: "both",
+      platform: "linkedin",
       remote_only: false,
       ...defaultValues,
     },
@@ -56,14 +56,17 @@ export default function SearchForm({ onSubmit, defaultValues, loading }: SearchF
 
       <div>
         <Label>Platform</Label>
-        <Select onValueChange={(v) => setValue("platform", v as any)} defaultValue={defaultValues?.platform || "both"}>
+        <Select onValueChange={(v) => setValue("platform", v as any)} defaultValue={defaultValues?.platform || "linkedin"}>
           <SelectTrigger>
             <SelectValue placeholder="Select platform" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="linkedin">LinkedIn</SelectItem>
             <SelectItem value="naukri">Naukri</SelectItem>
-            <SelectItem value="both">Both</SelectItem>
+            <SelectItem value="shine">Shine</SelectItem>
+            <SelectItem value="unstop">Unstop</SelectItem>
+            <SelectItem value="wellfound">Wellfound</SelectItem>
+            <SelectItem value="internshala">Internshala</SelectItem>
           </SelectContent>
         </Select>
       </div>

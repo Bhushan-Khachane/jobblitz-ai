@@ -73,7 +73,7 @@ export function useApplicationStream(userId: string) {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase?.removeChannel(channel);
     };
   }, [userId]);
 

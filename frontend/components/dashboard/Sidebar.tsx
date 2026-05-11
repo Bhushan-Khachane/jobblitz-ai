@@ -37,28 +37,24 @@ export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose
 
   return (
     <>
-      {/* Mobile overlay */}
       {mobileOpen && (
         <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={closeMobile} />
       )}
 
-      {/* Sidebar */}
       <aside
         className={cn(
-          "fixed top-0 left-0 z-50 h-full bg-card border-r border-border transition-all duration-300 flex flex-col",
+          "fixed top-0 left-0 z-50 h-full bg-[#080810] border-r border-white/5 transition-all duration-300 flex flex-col",
           collapsed ? "w-[72px]" : "w-64",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
-        {/* Logo */}
-        <div className="flex items-center gap-2 px-5 py-5 border-b border-border">
-          <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0">
+        <div className="flex items-center gap-2 px-5 py-5 border-b border-white/5">
+          <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0 glow-indigo">
             <Zap className="w-5 h-5 text-white" />
           </div>
-          {!collapsed && <span className="text-lg font-bold text-foreground">JobBlitz</span>}
+          {!collapsed && <span className="text-lg font-bold text-white">JobBlitz</span>}
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
           {nav.map((item) => {
             const active = pathname === item.href;
@@ -68,29 +64,26 @@ export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose
                 href={item.href}
                 onClick={() => closeMobile()}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
                   active
-                    ? "bg-primary-500/10 text-primary-500"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    ? "bg-indigo-500/15 text-indigo-300 border-l-2 border-indigo-500"
+                    : "text-white/40 hover:text-white/80 hover:bg-white/5"
                 )}
               >
-                <item.icon className={cn("w-5 h-5 shrink-0", active ? "text-primary-500" : "text-muted-foreground/70")} />
+                <item.icon className={cn("w-5 h-5 shrink-0", active ? "text-indigo-400" : "text-white/30")} />
                 {!collapsed && <span>{item.label}</span>}
               </Link>
             );
           })}
         </nav>
 
-        {/* Collapse toggle (desktop) */}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="hidden lg:flex items-center justify-center p-3 border-t border-border text-muted-foreground/70 hover:text-muted-foreground"
+          className="hidden lg:flex items-center justify-center p-3 border-t border-white/5 text-white/30 hover:text-white/60"
         >
           {collapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
         </button>
       </aside>
-
-      {/* Mobile hamburger trigger (rendered via layout) */}
     </>
   );
 }

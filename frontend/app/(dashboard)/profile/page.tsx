@@ -5,14 +5,13 @@ import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Save, Plus, X, Shield, CheckCircle, ChevronDown, ChevronUp, Puzzle, Zap } from "lucide-react";
+import { Save, Plus, X, Shield, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
 import ResumeUploader from "@/components/dashboard/ResumeUploader";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import api from "@/lib/api";
@@ -36,20 +35,7 @@ export default function ProfilePage() {
   const [skillInput, setSkillInput] = useState("");
   const [resumes, setResumes] = useState<any[]>([]);
   const [success, setSuccess] = useState("");
-
   const [credentials, setCredentials] = useState<any[]>([]);
-  const [activeMethod, setActiveMethod] = useState<"cookie" | null>(null);
-  const [credForm, setCredForm] = useState<{
-    platform: string;
-    username: string;
-    session_cookie: string;
-  }>({
-    platform: "linkedin",
-    username: "",
-    session_cookie: "",
-  });
-  const [credSaving, setCredSaving] = useState(false);
-  const [credError, setCredError] = useState("");
   const [applyMode, setApplyMode] = useState<string>("manual");
   const [modeSaving, setModeSaving] = useState(false);
 
@@ -141,35 +127,6 @@ export default function ProfilePage() {
     setResumes(res.data || []);
   };
 
-  const handleAddCredential = async (method: "cookie") => {
-    setCredError("");
-    if (!credForm.username) {
-      setCredError("Email is required");
-      return;
-    }
-    if (method === "cookie" && !credForm.session_cookie) {
-      setCredError("Session cookie is required");
-      return;
-    }
-    setCredSaving(true);
-    try {
-      const payload = {
-        platform: credForm.platform,
-        username: credForm.username,
-        session_cookie: credForm.session_cookie,
-      };
-      await api.post("/credentials/", payload);
-      const res = await api.get("/credentials/");
-      setCredentials(res.data || []);
-      setCredForm({ platform: "linkedin", username: "", session_cookie: "" });
-      setActiveMethod(null);
-    } catch (e: any) {
-      setCredError(e.response?.data?.detail || "Failed to save credentials");
-    } finally {
-      setCredSaving(false);
-    }
-  };
-
   const handleDeleteCredential = async (id: string) => {
     if (!confirm("Remove this account?")) return;
     try {
@@ -188,8 +145,6 @@ export default function ProfilePage() {
     } catch {}
   };
 
-  const isLinked = (platform: string) => credentials.some((c) => c.platform === platform);
-
   const handleModeChange = async (mode: string) => {
     setModeSaving(true);
     try {
@@ -201,11 +156,6 @@ export default function ProfilePage() {
       setModeSaving(false);
     }
   };
-  const getLinked = (platform: string) => credentials.find((c) => c.platform === platform);
-
-  const platformLabel = (p: string) => (p === "linkedin" ? "LinkedIn" : "Naukri");
-  const platformColor = (p: string) => (p === "linkedin" ? "bg-blue-600" : "bg-yellow-500");
-  const platformInitial = (p: string) => (p === "linkedin" ? "in" : "N");
 
   if (loading) return <LoadingSpinner />;
 
@@ -214,7 +164,7 @@ export default function ProfilePage() {
       <h1 className="text-2xl font-bold text-foreground">My Profile</h1>
 
       {success && (
-        <div className="p-3 bg-green-500/10 border border-green-200 rounded-lg text-sm text-green-700">{success}</div>
+        <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg text-sm text-green-400">{success}</div>
       )}
 
       <form onSubmit={handleSubmit(onSubmit)}>
@@ -249,7 +199,7 @@ export default function ProfilePage() {
               <textarea
                 id="summary"
                 rows={4}
-                className="flex w-full rounded-md border border-gray-300 bg-card px-3 py-2 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="flex w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 placeholder="Brief overview of your experience and goals..."
                 {...register("summary")}
               />
@@ -275,14 +225,14 @@ export default function ProfilePage() {
             </div>
             <div className="flex flex-wrap gap-2">
               {skills.map((s) => (
-                <span key={s} className="inline-flex items-center gap-1 px-3 py-1 bg-primary-500/10 text-primary-500 rounded-full text-sm">
+                <span key={s} className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-500/10 text-indigo-400 rounded-full text-sm">
                   {s}
-                  <button type="button" onClick={() => removeSkill(s)} className="hover:text-red-500">
+                  <button type="button" onClick={() => removeSkill(s)} className="hover:text-red-400">
                     <X className="w-3 h-3" />
                   </button>
                 </span>
               ))}
-              {skills.length === 0 && <p className="text-sm text-muted-foreground/70">No skills added yet</p>}
+              {skills.length === 0 && <p className="text-sm text-white/30">No skills added yet</p>}
             </div>
           </CardContent>
         </Card>
@@ -324,10 +274,10 @@ export default function ProfilePage() {
           {resumes.length > 0 && (
             <div className="space-y-2">
               {resumes.map((r: any) => (
-                <div key={r.id} className="flex items-center justify-between p-3 bg-background rounded-lg">
+                <div key={r.id} className="flex items-center justify-between p-3 bg-white/[0.02] rounded-lg border border-white/5">
                   <div>
-                    <p className="text-sm font-medium text-foreground">{r.title}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString("en-IN")}</p>
+                    <p className="text-sm font-medium text-white/90">{r.title}</p>
+                    <p className="text-xs text-white/40">{new Date(r.created_at).toLocaleDateString("en-IN")}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {r.is_default && (
@@ -353,10 +303,10 @@ export default function ProfilePage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-primary-500" />
+            <Zap className="w-5 h-5 text-indigo-400" />
             Apply Mode
           </CardTitle>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-sm text-white/40 mt-1">
             Control how JobBlitz submits applications on your behalf.
           </p>
         </CardHeader>
@@ -374,12 +324,12 @@ export default function ProfilePage() {
                 onClick={() => handleModeChange(opt.value)}
                 className={`p-4 rounded-xl border text-left transition-colors ${
                   applyMode === opt.value
-                    ? "border-primary-500 bg-primary-500/10 text-foreground"
-                    : "border-border hover:border-muted-foreground text-foreground"
+                    ? "border-indigo-500/50 bg-indigo-500/10 text-white"
+                    : "border-white/5 hover:border-white/20 text-white/60"
                 }`}
               >
                 <p className="font-semibold text-sm">{opt.label}</p>
-                <p className="text-xs text-muted-foreground mt-1">{opt.desc}</p>
+                <p className="text-xs text-white/40 mt-1">{opt.desc}</p>
               </button>
             ))}
           </div>
@@ -388,31 +338,32 @@ export default function ProfilePage() {
 
       <Separator className="my-8" />
 
-      {/* Linked Accounts */}
+      {/* Linked Accounts — Neko redirect only */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-primary-500" />
-            Linked Accounts
+            <Shield className="w-5 h-5 text-indigo-400" />
+            Connected Accounts
           </CardTitle>
-          <p className="text-sm text-muted-foreground mt-1">
-            Connect your LinkedIn and Naukri accounts to enable automatic job applications.
+          <p className="text-sm text-white/40 mt-1">
+            Connect your job portal accounts via our secure cloud browser.
           </p>
         </CardHeader>
         <CardContent className="space-y-6">
-
-          {/* Connected accounts */}
+          {/* Show existing credentials */}
           {credentials.length > 0 && (
             <div className="space-y-3">
               {credentials.map((cred: any) => (
-                <div key={cred.id} className="flex items-center justify-between p-4 bg-green-500/10 rounded-lg border border-green-200">
+                <div key={cred.id} className="flex items-center justify-between p-4 bg-white/[0.02] rounded-lg border border-white/5">
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${platformColor(cred.platform)}`}>
-                      {platformInitial(cred.platform)}
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${
+                      cred.platform === "linkedin" ? "bg-blue-600" : cred.platform === "naukri" ? "bg-amber-500" : "bg-indigo-600"
+                    }`}>
+                      {cred.platform === "linkedin" ? "in" : cred.platform === "naukri" ? "N" : cred.platform[0].toUpperCase()}
                     </div>
                     <div>
-                      <p className="font-medium text-foreground capitalize">{platformLabel(cred.platform)}</p>
-                      <p className="text-sm text-muted-foreground">{cred.username}</p>
+                      <p className="font-medium text-white/90 capitalize">{cred.platform}</p>
+                      <p className="text-sm text-white/40">{cred.username}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -421,7 +372,7 @@ export default function ProfilePage() {
                         checked={cred.is_active}
                         onCheckedChange={() => handleToggleCredential(cred)}
                       />
-                      <span className={`text-xs font-medium ${cred.is_active ? "text-green-600" : "text-muted-foreground/70"}`}>
+                      <span className={`text-xs font-medium ${cred.is_active ? "text-green-400" : "text-white/30"}`}>
                         {cred.is_active ? "Active" : "Paused"}
                       </span>
                     </div>
@@ -429,7 +380,7 @@ export default function ProfilePage() {
                       variant="ghost"
                       size="icon"
                       onClick={() => handleDeleteCredential(cred.id)}
-                      className="text-red-400 hover:text-red-600 hover:bg-red-50"
+                      className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
                     >
                       <X className="w-4 h-4" />
                     </Button>
@@ -439,130 +390,28 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {isLinked("linkedin") && isLinked("naukri") && (
-            <div className="p-4 bg-green-500/10 border border-green-200 rounded-lg text-sm text-green-700 flex items-center gap-3">
-              <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
-              <div>
-                <p className="font-medium">All accounts connected</p>
-                <p className="text-green-600/80">Auto-apply is fully enabled on both platforms.</p>
-              </div>
-            </div>
-          )}
-
-          {/* Method 1: Browser Extension */}
-          <div className="border border-border rounded-xl overflow-hidden">
-            <div className="p-4 flex items-center justify-between bg-muted/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-primary-500/10 rounded-lg flex items-center justify-center">
-                  <Puzzle className="w-5 h-5 text-primary-500" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground">Browser Extension</p>
-                  <p className="text-xs text-muted-foreground">Secure, reliable, and recommended</p>
-                </div>
-              </div>
-              <Badge className="bg-green-500/15 text-green-400 hover:bg-green-500/15">Recommended</Badge>
-            </div>
-            <div className="p-4">
-              <p className="text-sm text-muted-foreground mb-3">
-                Install the JobBlitz Chrome extension to connect your accounts securely. Your credentials never leave your browser.
+          {/* Neko redirect message */}
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-start gap-3">
+            <span className="text-xl">🔐</span>
+            <div>
+              <p className="font-semibold text-white/90">Connect accounts securely</p>
+              <p className="text-sm text-white/40 mt-1">
+                Use the{" "}
+                <a href="/connect" className="text-indigo-400 underline hover:text-indigo-300">
+                  Connect Accounts
+                </a>{" "}
+                page to link LinkedIn and Naukri via our secure cloud browser.
+                Your password never reaches our servers.
               </p>
-              <Button variant="outline" size="sm" disabled>
-                <Puzzle className="w-4 h-4 mr-2" />
-                Install Chrome Extension — Coming Soon
-              </Button>
             </div>
-          </div>
-
-          {/* Method 2: Session Cookie */}
-          <div className="border border-border rounded-xl overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setActiveMethod(activeMethod === "cookie" ? null : "cookie")}
-              className="w-full p-4 flex items-center justify-between bg-muted/50 hover:bg-muted transition-colors text-left"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center">
-                  <Shield className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground">Session Cookie</p>
-                  <p className="text-xs text-muted-foreground">Fast, no password needed</p>
-                </div>
-              </div>
-              {activeMethod === "cookie" ? (
-                <ChevronUp className="w-4 h-4 text-muted-foreground/70" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-muted-foreground/70" />
-              )}
-            </button>
-            {activeMethod === "cookie" && (
-              <div className="p-4 space-y-4">
-                {credError && (
-                  <div className="p-3 bg-red-500/10 border border-red-200 rounded-lg text-sm text-red-600">{credError}</div>
-                )}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label>Platform</Label>
-                    <select
-                      className="mt-1 w-full rounded-md border border-gray-300 bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      value={credForm.platform}
-                      onChange={(e) => setCredForm({ ...credForm, platform: e.target.value })}
-                    >
-                      <option value="linkedin">LinkedIn</option>
-                      <option value="naukri">Naukri</option>
-                    </select>
-                  </div>
-                  <div>
-                    <Label>Account Email</Label>
-                    <Input
-                      type="email"
-                      placeholder="you@email.com"
-                      value={credForm.username}
-                      onChange={(e) => setCredForm({ ...credForm, username: e.target.value })}
-                      className="mt-1"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label>Session Cookie</Label>
-                  <textarea
-                    rows={3}
-                    placeholder={`Paste your ${platformLabel(credForm.platform)} session cookie here...`}
-                    value={credForm.session_cookie}
-                    onChange={(e) => setCredForm({ ...credForm, session_cookie: e.target.value })}
-                    className="mt-1 flex w-full rounded-md border border-gray-300 bg-card px-3 py-2 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-                <div className="p-3 bg-blue-500/10 border border-blue-100 rounded-lg text-xs text-blue-700 space-y-1">
-                  <p className="font-medium">How to get your session cookie:</p>
-                  <ol className="list-decimal list-inside space-y-0.5">
-                    <li>Open {platformLabel(credForm.platform)} in your browser and log in.</li>
-                    <li>Open DevTools (F12) → Application → Cookies.</li>
-                    <li>
-                      Copy the value of{" "}
-                      <code className="bg-blue-500/15 px-1 rounded">{credForm.platform === "linkedin" ? "li_at" : "JSESSIONID"}</code>{" "}
-                      and paste it above.
-                    </li>
-                  </ol>
-                </div>
-                <Button
-                  type="button"
-                  onClick={() => handleAddCredential("cookie")}
-                  disabled={credSaving}
-                >
-                  {credSaving ? "Connecting..." : "Connect with Cookie"}
-                </Button>
-              </div>
-            )}
           </div>
 
           {/* Security note */}
-          <div className="p-3 bg-background border border-border rounded-lg text-xs text-muted-foreground flex gap-2">
-            <Shield className="w-4 h-4 flex-shrink-0 mt-0.5 text-muted-foreground/70" />
+          <div className="p-3 bg-white/[0.02] border border-white/5 rounded-lg text-xs text-white/30 flex gap-2">
+            <Shield className="w-4 h-4 flex-shrink-0 mt-0.5 text-white/20" />
             <span>
               JobBlitz never stores your password. We use secure cloud browser sessions to connect your accounts,
-              and only session cookies are saved (encrypted with AES-256). LinkedIn and Naukri do not offer third-party OAuth for job applications.
+              and only session cookies are saved (encrypted with AES-256).
             </span>
           </div>
         </CardContent>

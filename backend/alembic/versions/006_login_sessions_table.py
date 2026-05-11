@@ -2,6 +2,8 @@
 
 Users log into job portals through streamed Neko containers.
 This table tracks active sessions with 10-minute TTL enforcement.
+
+RLS policies using auth.uid() are only applied on Supabase-hosted databases.
 """
 
 from alembic import op
@@ -14,6 +16,12 @@ revision = "006_login_sessions_table"
 down_revision = "005_supabase_rls_policies"
 branch_labels = None
 depends_on = None
+
+
+def _has_auth_schema() -> bool:
+    conn = op.get_bind()
+    result = conn.execute(sa.text("SELECT 1 FROM information_schema.schemata WHERE schema_name = 'auth'"))
+    return result.fetchone() is not None
 
 
 def upgrade() -> None:
@@ -32,16 +40,18 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
     )
 
-    # Enable RLS on login_sessions
-    op.execute("ALTER TABLE login_sessions ENABLE ROW LEVEL SECURITY;")
-    op.execute("""
-        CREATE POLICY "users_own_sessions" ON login_sessions
-            FOR ALL
-            USING (auth.uid() = user_id);
-    """)
+    # Enable RLS on login_sessions (Supabase only)
+    if _has_auth_schema():
+        op.execute("ALTER TABLE login_sessions ENABLE ROW LEVEL SECURITY;")
+        op.execute("""
+            CREATE POLICY "users_own_sessions" ON login_sessions
+                FOR ALL
+                USING (auth.uid() = user_id);
+        """)
 
 
 def downgrade() -> None:
-    op.execute("DROP POLICY IF EXISTS \"users_own_sessions\" ON login_sessions;")
-    op.execute("ALTER TABLE login_sessions DISABLE ROW LEVEL SECURITY;")
+    if _has_auth_schema():
+        op.execute('DROP POLICY IF EXISTS "users_own_sessions" ON login_sessions;')
+        op.execute("ALTER TABLE login_sessions DISABLE ROW LEVEL SECURITY;")
     op.drop_table("login_sessions")

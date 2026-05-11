@@ -38,6 +38,7 @@ class UserResponse(BaseModel):
     is_active: bool
     application_mode: str
     daily_apply_limit: int
+    plan: str = "free"
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -76,7 +77,7 @@ class ProfileResponse(ProfileCreate):
 
 # ── Credentials ───────────────────────────────────────────────────────────────
 class CredentialCreate(BaseModel):
-    platform: str = Field(pattern="^(linkedin|naukri)$")
+    platform: str = Field(pattern="^(linkedin|naukri|shine|unstop|wellfound|internshala)$")
     username: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=1, max_length=500)
 
@@ -127,7 +128,7 @@ class ResumeTailorResponse(BaseModel):
 # ── Job Search ────────────────────────────────────────────────────────────────
 class JobSearchCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    platform: str = Field(pattern="^(linkedin|naukri|both)$")
+    platform: str = Field(pattern="^(linkedin|naukri|shine|unstop|wellfound|internshala)$")
     keywords: str = Field(min_length=1, max_length=500)
     location: str | None = None
     experience_level: str | None = None

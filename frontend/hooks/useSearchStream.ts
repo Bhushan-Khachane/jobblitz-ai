@@ -75,7 +75,7 @@ export function useSearchStream(userId: string) {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase?.removeChannel(channel);
     };
   }, [userId]);
 

@@ -12,7 +12,6 @@ from playwright_stealth import stealth_async
 
 from app.config import settings
 from app.services.ai_service import answer_question
-from app.utils.encryption import decrypt
 
 
 VIEWPORT_MIN = 1280
@@ -42,68 +41,12 @@ async def login_with_credentials(
     encrypted_password: str,
     user_data_dir: str | Path | None = None,
 ) -> tuple[bool, str]:
-    """Log in to LinkedIn or Naukri using credentials via browser pool. Returns (success, error_message).
+    """Login is handled via Neko cloud browser sessions (see neko_manager.py).
 
-    Note: The browser pool clears cookies on release, so login sessions are
-    not persisted across calls. The Neko cloud browser flow is the preferred
-    login mechanism — this function is a legacy fallback.
+    This function is retained as a stub for interface compatibility only.
+    Password-based login is not supported in the zero-password architecture.
     """
-    password = decrypt(encrypted_password)
-
-    from app.services.browser_pool import browser_pool
-    ctx = await browser_pool.acquire(task_type=f"{platform}_apply")
-    try:
-        page = await ctx.new_page()
-        try:
-            await stealth_async(page)
-
-            if platform == "linkedin":
-                ok = await _login_linkedin(page, username, password)
-            elif platform == "naukri":
-                ok = await _login_naukri(page, username, password)
-            else:
-                return False, f"Unsupported platform: {platform}"
-
-            if not ok:
-                return False, f"Login failed for {platform}"
-            return True, ""
-        finally:
-            await page.close()
-    finally:
-        await browser_pool.release(ctx)
-
-
-async def _login_linkedin(page: Page, username: str, password: str) -> bool:
-    await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=30000)
-    await _random_delay()
-    await page.fill("#username", username)
-    await _random_delay(0.3, 0.8)
-    await page.fill("#password", password)
-    await _random_delay(0.5, 1.0)
-    await page.click('button[type="submit"]')
-    await _random_delay(3, 5)
-    # Check for feed page or challenge
-    url = page.url
-    if "feed" in url or "mynetwork" in url:
-        return True
-    if "challenge" in url or "checkpoint" in url:
-        return False
-    return "login" not in url
-
-
-async def _login_naukri(page: Page, username: str, password: str) -> bool:
-    await page.goto("https://www.naukri.com/nlogin/login", wait_until="domcontentloaded", timeout=30000)
-    await _random_delay()
-    await page.fill("#usernameField, input[name='email'], input[placeholder*='Email']", username)
-    await _random_delay(0.3, 0.8)
-    await page.fill("#passwordField, input[name='password'], input[placeholder*='Password']", password)
-    await _random_delay(0.5, 1.0)
-    await page.click('button[type="submit"], .loginButton, #loginButton')
-    await _random_delay(3, 5)
-    url = page.url
-    if "nlogin" not in url and "login" not in url.lower():
-        return True
-    return False
+    return False, "Password-based login is not supported — use Neko cloud browser sessions"
 
 
 async def _detect_form_fields(page: Page) -> dict[str, str]:
@@ -326,16 +269,10 @@ async def _apply_naukri(
     """Naukri-specific apply flow."""
     answers: dict[str, str] = {}
 
-    # Ensure we are logged in first
+    # Ensure we are logged in first — login is handled via Neko cloud browser sessions
     job_url = page.url
     if await _is_naukri_login_required(page):
-        password = decrypt(encrypted_password)
-        ok = await _login_naukri(page, username, password)
-        if not ok:
-            return False, "Naukri login failed", {}
-        # Navigate back to the job page after login
-        await page.goto(job_url, wait_until="networkidle", timeout=30000)
-        await _random_delay(2, 4)
+        return False, "Naukri login required — connect via Neko cloud browser first", {}
 
     # Skip jobs that redirect to external company sites — too complex to automate
     if await _is_naukri_external_apply(page):
@@ -410,19 +347,10 @@ async def apply_to_job(
             await page.goto(apply_url, wait_until="domcontentloaded", timeout=30000)
             await _random_delay(2, 4)
 
-            # If requires login, attempt login
+            # If requires login, redirect to Neko cloud browser flow
             if "login" in page.url.lower() or "signin" in page.url.lower():
-                password = decrypt(encrypted_password)
-                if platform == "linkedin":
-                    ok = await _login_linkedin(page, username, password)
-                elif platform == "naukri":
-                    ok = await _login_naukri(page, username, password)
-                else:
-                    return False, "Unknown platform", None, {}
-                if not ok:
-                    screenshot_path = await _save_screenshot(page, user_id, "login_failed")
-                    return False, "Login failed", screenshot_path, {}
-                await page.goto(apply_url, wait_until="domcontentloaded", timeout=30000)
+                screenshot_path = await _save_screenshot(page, user_id, "login_required")
+                return False, "Login required — connect via Neko cloud browser first", screenshot_path, {}
                 await _random_delay(2, 4)
 
             if platform == "naukri":
