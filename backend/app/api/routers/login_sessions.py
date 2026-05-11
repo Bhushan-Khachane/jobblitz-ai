@@ -81,7 +81,7 @@ async def get_session_status(
         if not session:
             raise HTTPException(status_code=404, detail="No active session found")
 
-        # Check actual login status via Neko CDP
+        # Check actual login status via Neko CDP — pass cdp_url derived from iframe_url + port
         status = await neko_manager.check_login_status(session.container_id, platform)
 
         if status == "success":
@@ -110,8 +110,7 @@ async def destroy_session(
     try:
         await neko_manager.extract_and_store_cookies(container_id, str(user.id), platform)
     except Exception as e:
-        # Still try to destroy the container even if cookie extraction fails
-        await neko_manager.destroy_session(container_id)
+        # Container destruction is handled by extract_and_store_cookies's finally block
         raise HTTPException(status_code=500, detail=f"Failed to save cookies: {str(e)}")
 
     # Mark session as destroyed in DB

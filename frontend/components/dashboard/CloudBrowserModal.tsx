@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { X, Shield, Clock } from "lucide-react";
+import api from "@/lib/api";
 
 interface CloudBrowserModalProps {
   platform: string;
   streamUrl: string;
   token: string;
+  containerId: string;
   expiresAt: string;
   onClose: () => void;
   onVerified: () => void;
@@ -16,6 +18,7 @@ export default function CloudBrowserModal({
   platform,
   streamUrl,
   token,
+  containerId,
   expiresAt,
   onClose,
   onVerified,
@@ -40,11 +43,8 @@ export default function CloudBrowserModal({
   // Poll login status
   const checkStatus = useCallback(async () => {
     try {
-      const res = await fetch(`/api/v1/login-sessions/${platform}/verify?container_id=${streamUrl.split(":").pop()}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const data = await res.json();
+      const res = await api.post(`/login-sessions/${platform}/verify?container_id=${containerId}`);
+      const data = res.data;
       if (data.status === "success") {
         setStatus("success");
         onVerified();
@@ -52,7 +52,7 @@ export default function CloudBrowserModal({
     } catch {
       // Continue polling
     }
-  }, [platform, streamUrl, onVerified]);
+  }, [platform, containerId, onVerified]);
 
   useEffect(() => {
     if (status !== "loading") return;

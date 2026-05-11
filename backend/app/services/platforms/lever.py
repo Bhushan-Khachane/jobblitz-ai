@@ -10,6 +10,17 @@ from app.services.ats_router import ApplyResult
 
 logger = logging.getLogger(__name__)
 
+SUBMIT_SELECTORS = [
+    'button[type="submit"]',
+    'input[type="submit"]',
+    'button:has-text("Submit")',
+    'button:has-text("Apply")',
+    'button:has-text("Apply Now")',
+    'button:has-text("Send application")',
+    'a.btn-primary:has-text("Submit")',
+    'a.btn-primary:has-text("Apply")',
+]
+
 
 async def handle_lever(
     page: Page, job: dict, profile: dict, resume_path: str | None = None
@@ -39,12 +50,14 @@ async def handle_lever(
             if await file_input.count() > 0:
                 await file_input.first.set_input_files(resume_path)
 
-        submit_btn = page.locator('button[type="submit"], input[type="submit"]')
-        if await submit_btn.count() > 0:
-            await submit_btn.first.click()
-            await page.wait_for_timeout(3000)
-            screenshot = await page.screenshot()
-            return ApplyResult(success=True, platform="lever", screenshot=screenshot)
+        # Try submit selectors in priority order
+        for selector in SUBMIT_SELECTORS:
+            btn = page.locator(selector)
+            if await btn.count() > 0:
+                await btn.first.click()
+                await page.wait_for_timeout(3000)
+                screenshot = await page.screenshot()
+                return ApplyResult(success=True, platform="lever", screenshot=screenshot)
 
         return ApplyResult(success=False, platform="lever", error="No submit button found")
 

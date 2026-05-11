@@ -25,10 +25,15 @@ async def _random_delay(low: float = 1.0, high: float = 3.0) -> None:
 
 async def _save_screenshot(page: Page, user_id: uuid.UUID, label: str) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    path = Path(settings.SCREENSHOT_DIR) / str(user_id) / f"{label}_{ts}.png"
+    filename = f"{label}_{ts}.png"
+    path = Path(settings.SCREENSHOT_DIR) / str(user_id) / filename
     path.parent.mkdir(parents=True, exist_ok=True)
     await page.screenshot(path=str(path), full_page=True)
-    return str(path)
+
+    # Attempt Supabase Storage upload (falls back to local path if unavailable)
+    from app.services.storage import upload_to_storage
+    public_url = await upload_to_storage(str(path), str(user_id), filename)
+    return public_url or str(path)
 
 
 async def login_with_credentials(

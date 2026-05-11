@@ -331,6 +331,7 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
                 error = result.error
                 screenshot_path = result.screenshot
                 answers_used = result.answers_used
+                assisted_mode = getattr(result, "mode", "auto") == "assisted"
                 # Record circuit breaker outcome
                 if success:
                     await circuit_breaker.record_success(listing.platform)
@@ -346,7 +347,11 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
             logger.error(f"Apply failed for listing {lid}: {apply_err}", exc_info=True)
 
         if success:
-            application.status = "submitted"
+            if assisted_mode:
+                application.status = "submitted"
+                application.approval_status = "pending_approval"
+            else:
+                application.status = "submitted"
             application.applied_at = datetime.now(timezone.utc)
         else:
             # External apply jobs are not failures — just skip them

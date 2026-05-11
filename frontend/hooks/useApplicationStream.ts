@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import api from "@/lib/api";
 
 export interface Application {
   id: string;
@@ -26,16 +27,14 @@ export function useApplicationStream(userId: string) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Initial fetch
+    if (!userId) return;
+
+    // Initial fetch via REST API
     async function fetchInitial() {
       try {
-        const res = await fetch("/api/v1/applications/", {
-          headers: { Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setApplications(data.applications || data);
-        }
+        const res = await api.get("/applications/");
+        const data = res.data;
+        setApplications(data.applications || data.items || data);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to fetch applications");
       } finally {
@@ -45,7 +44,9 @@ export function useApplicationStream(userId: string) {
 
     fetchInitial();
 
-    // Real-time subscription
+    // Real-time subscription (graceful no-op if Supabase not configured)
+    if (!supabase) return;
+
     const channel = supabase
       .channel("applications")
       .on(

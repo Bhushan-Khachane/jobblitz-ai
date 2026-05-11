@@ -23,6 +23,7 @@ async def handle_workday(
 
     Workday forms are too complex for full automation.
     We pre-fill what we can and return a screenshot for the user to complete.
+    Returns success=True with mode="assisted" so the caller knows user action is needed.
     """
     url = job.get("apply_url", "") or job.get("external_url", "")
 
@@ -55,9 +56,9 @@ async def handle_workday(
 
         screenshot = await page.screenshot()
         return ApplyResult(
-            success=False,
+            success=True,
             platform="workday",
-            error="Workday requires manual completion (assisted mode)",
+            mode="assisted",
             screenshot=screenshot,
         )
 

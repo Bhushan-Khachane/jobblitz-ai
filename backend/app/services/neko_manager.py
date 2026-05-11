@@ -115,37 +115,45 @@ class NekoManager:
             logger.error(f"Failed to create Neko session: {e}", exc_info=True)
             raise
 
-    async def check_login_status(self, container_id: str, platform: str) -> str:
+    async def check_login_status(self, container_id: str, platform: str, cdp_url: str | None = None) -> str:
         """Check if the user has successfully logged in.
 
         Polls the container's browser via CDP to detect when the portal
         dashboard URL is loaded (login success).
 
+        Args:
+            container_id: Docker container ID.
+            platform: Platform name (linkedin/naukri).
+            cdp_url: Pre-computed CDP endpoint URL. If provided, skips Docker
+                     port lookup (faster and works across network boundaries).
+
         Returns: 'pending', 'success', or 'expired'
         """
         client = self._get_client()
         try:
-            container = client.containers.get(container_id)
-            expires_str = container.labels.get("jb.expires", "")
+            # Use provided cdp_url or fall back to Docker port lookup
+            if not cdp_url:
+                container = client.containers.get(container_id)
+                expires_str = container.labels.get("jb.expires", "")
 
-            if expires_str:
-                expires_at = datetime.fromisoformat(expires_str)
-                if datetime.now(timezone.utc) > expires_at.replace(tzinfo=timezone.utc):
-                    return "expired"
+                if expires_str:
+                    expires_at = datetime.fromisoformat(expires_str)
+                    if datetime.now(timezone.utc) > expires_at.replace(tzinfo=timezone.utc):
+                        return "expired"
 
-            # Get CDP port from container
-            container.reload()
-            cdp_bindings = container.ports.get("9222/tcp")
-            if not cdp_bindings:
-                return "pending"
+                container.reload()
+                cdp_bindings = container.ports.get("9222/tcp")
+                if not cdp_bindings:
+                    return "pending"
 
-            cdp_port = cdp_bindings[0]["HostPort"]
-            host = getattr(settings, "LOGIN_HOST", "localhost")
+                cdp_port = cdp_bindings[0]["HostPort"]
+                host = getattr(settings, "LOGIN_HOST", "localhost")
+                cdp_url = f"http://{host}:{cdp_port}"
 
             # Query CDP for current browser pages
             async with httpx.AsyncClient(timeout=5) as http:
                 try:
-                    resp = await http.get(f"http://{host}:{cdp_port}/json")
+                    resp = await http.get(f"{cdp_url}/json")
                     if resp.status_code == 200:
                         pages = resp.json()
                         if pages:
@@ -168,7 +176,7 @@ class NekoManager:
 
         Connects to the container's browser via Playwright CDP, extracts all
         cookies, encrypts with Fernet, and stores in the Credential table.
-        The container is destroyed after extraction.
+        The container is always destroyed after extraction (even on errors).
         """
         from playwright.async_api import async_playwright
         from app.utils.encryption import encrypt
@@ -179,78 +187,80 @@ class NekoManager:
 
         _async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-        # Get CDP port from container
-        client = self._get_client()
-        container = client.containers.get(container_id)
-        container.reload()
-        cdp_bindings = container.ports.get("9222/tcp")
-
-        cookies_data: list[dict] = []
-
-        if cdp_bindings:
-            cdp_port = cdp_bindings[0]["HostPort"]
-            host = getattr(settings, "LOGIN_HOST", "localhost")
-            cdp_endpoint = f"http://{host}:{cdp_port}"
-
-            pw = await async_playwright().start()
-            try:
-                browser = await pw.chromium.connect_over_cdp(cdp_endpoint)
-                # Get all contexts and extract cookies
-                for ctx in browser.contexts:
-                    cookies = await ctx.cookies()
-                    cookies_data.extend([
-                        {
-                            "name": c["name"],
-                            "value": c["value"],
-                            "domain": c["domain"],
-                            "path": c["path"],
-                            "expires": c.get("expires", -1),
-                        }
-                        for c in cookies
-                    ])
-                await browser.close()
-            except Exception as e:
-                logger.warning(f"CDP cookie extraction failed: {e}")
-            finally:
-                await pw.stop()
-
-        if not cookies_data:
-            logger.warning(f"No cookies extracted from container {container_id[:12]}")
-
-        # Store encrypted cookies
         try:
-            import json
-            encrypted_cookies = encrypt(json.dumps(cookies_data))
+            # Get CDP port from container
+            client = self._get_client()
+            container = client.containers.get(container_id)
+            container.reload()
+            cdp_bindings = container.ports.get("9222/tcp")
 
-            async with _async_session() as db:
-                result = await db.execute(
-                    select(Credential).where(
-                        Credential.user_id == user_id,
-                        Credential.platform == platform,
+            cookies_data: list[dict] = []
+
+            if cdp_bindings:
+                cdp_port = cdp_bindings[0]["HostPort"]
+                host = getattr(settings, "LOGIN_HOST", "localhost")
+                cdp_endpoint = f"http://{host}:{cdp_port}"
+
+                pw = await async_playwright().start()
+                try:
+                    browser = await pw.chromium.connect_over_cdp(cdp_endpoint)
+                    for ctx in browser.contexts:
+                        cookies = await ctx.cookies()
+                        cookies_data.extend([
+                            {
+                                "name": c["name"],
+                                "value": c["value"],
+                                "domain": c["domain"],
+                                "path": c["path"],
+                                "expires": c.get("expires", -1),
+                            }
+                            for c in cookies
+                        ])
+                    await browser.close()
+                except Exception as e:
+                    logger.warning(f"CDP cookie extraction failed: {e}")
+                finally:
+                    await pw.stop()
+
+            if not cookies_data:
+                logger.warning(f"No cookies extracted from container {container_id[:12]}")
+
+            # Store encrypted cookies in session_cookies column
+            try:
+                import json
+                encrypted_cookies = encrypt(json.dumps(cookies_data))
+
+                async with _async_session() as db:
+                    result = await db.execute(
+                        select(Credential).where(
+                            Credential.user_id == user_id,
+                            Credential.platform == platform,
+                        )
                     )
-                )
-                cred = result.scalar_one_or_none()
-                if cred:
-                    cred.encrypted_password = encrypted_cookies
-                    cred.is_active = True
-                    cred.last_login_at = datetime.now(timezone.utc)
-                else:
-                    cred = Credential(
-                        user_id=user_id,
-                        platform=platform,
-                        username=f"session:{container_id[:8]}",
-                        encrypted_password=encrypted_cookies,
-                        is_active=True,
-                    )
-                    db.add(cred)
-                await db.commit()
+                    cred = result.scalar_one_or_none()
+                    if cred:
+                        cred.session_cookies = encrypted_cookies
+                        cred.is_active = True
+                        cred.last_login_at = datetime.now(timezone.utc)
+                    else:
+                        cred = Credential(
+                            user_id=user_id,
+                            platform=platform,
+                            username=f"session:{container_id[:8]}",
+                            encrypted_password="neko_session",  # Placeholder — no password-based login
+                            session_cookies=encrypted_cookies,
+                            is_active=True,
+                        )
+                        db.add(cred)
+                    await db.commit()
 
-        except Exception as e:
-            logger.error(f"Failed to extract/store cookies for {container_id}: {e}", exc_info=True)
-            raise
+            except Exception as e:
+                logger.error(f"Failed to store cookies for {container_id}: {e}", exc_info=True)
+                raise
 
-        # Destroy the container after extraction
-        await self.destroy_session(container_id)
+        finally:
+            # Always destroy the container, even on errors
+            await self.destroy_session(container_id)
 
     async def destroy_session(self, container_id: str) -> None:
         """Kill and remove a Neko container."""

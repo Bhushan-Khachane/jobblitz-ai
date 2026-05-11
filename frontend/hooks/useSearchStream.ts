@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import api from "@/lib/api";
 
 export interface JobSearch {
   id: string;
@@ -30,20 +31,14 @@ export function useSearchStream(userId: string) {
   useEffect(() => {
     if (!userId) return;
 
-    // Initial fetch
+    // Initial fetch via REST API
     async function fetchInitial() {
       try {
-        const res = await fetch("/api/v1/job-searches/", {
-          headers: {
-            Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setSearches(data.items || data.searches || data);
-        }
+        const res = await api.get("/job-searches/");
+        const data = res.data;
+        setSearches(data.items || data.searches || data);
       } catch (err) {
-        console.error("Failed to fetch initial searches:", err);
+        console.error("Failed to fetch searches:", err);
       } finally {
         setLoading(false);
       }
@@ -51,7 +46,9 @@ export function useSearchStream(userId: string) {
 
     fetchInitial();
 
-    // Real-time subscription
+    // Real-time subscription (graceful no-op if Supabase not configured)
+    if (!supabase) return;
+
     const channel = supabase
       .channel("job_searches")
       .on(

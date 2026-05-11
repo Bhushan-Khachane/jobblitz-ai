@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Linkedin, Briefcase } from "lucide-react";
+import api from "@/lib/api";
 import PlatformStatusPill from "@/components/dashboard/PlatformStatusPill";
 import CloudBrowserModal from "@/components/dashboard/CloudBrowserModal";
 
@@ -31,24 +32,20 @@ export default function ConnectPage() {
     platform: string;
     streamUrl: string;
     token: string;
+    containerId: string;
     expiresAt: string;
   } | null>(null);
   const [connectedPlatforms, setConnectedPlatforms] = useState<Record<string, boolean>>({});
 
   const handleConnect = async (platform: string) => {
     try {
-      const res = await fetch(`/api/v1/login-sessions?platform=${platform}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("jb_access_token")}`,
-        },
-      });
-      const data = await res.json();
+      const res = await api.post(`/login-sessions?platform=${platform}`);
+      const data = res.data;
       setActiveSession({
         platform: data.platform,
         streamUrl: data.stream_url,
         token: data.token,
+        containerId: data.container_id,
         expiresAt: data.expires_at,
       });
     } catch (err) {
@@ -117,6 +114,7 @@ export default function ConnectPage() {
           platform={activeSession.platform}
           streamUrl={activeSession.streamUrl}
           token={activeSession.token}
+          containerId={activeSession.containerId}
           expiresAt={activeSession.expiresAt}
           onClose={() => setActiveSession(null)}
           onVerified={handleVerified}

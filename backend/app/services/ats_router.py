@@ -20,6 +20,7 @@ class ApplyResult:
     """Result of a job application attempt."""
     success: bool
     platform: str
+    mode: str = "auto"  # "auto" or "assisted" (requires user completion)
     screenshot: bytes | None = None
     error: str | None = None
     answers_used: dict[str, str] | None = None

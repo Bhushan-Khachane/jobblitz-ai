@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import api from "@/lib/api";
 import CloudBrowserModal from "@/components/dashboard/CloudBrowserModal";
 
 export default function PlatformConnectPage() {
@@ -10,23 +11,19 @@ export default function PlatformConnectPage() {
   const [session, setSession] = useState<{
     streamUrl: string;
     token: string;
+    containerId: string;
     expiresAt: string;
   } | null>(null);
 
   useEffect(() => {
     async function createSession() {
       try {
-        const res = await fetch(`/api/v1/login-sessions?platform=${platform}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("jb_access_token")}`,
-          },
-        });
-        const data = await res.json();
+        const res = await api.post(`/login-sessions?platform=${platform}`);
+        const data = res.data;
         setSession({
           streamUrl: data.stream_url,
           token: data.token,
+          containerId: data.container_id,
           expiresAt: data.expires_at,
         });
       } catch (err) {
@@ -49,6 +46,7 @@ export default function PlatformConnectPage() {
       platform={platform}
       streamUrl={session.streamUrl}
       token={session.token}
+      containerId={session.containerId}
       expiresAt={session.expiresAt}
       onClose={() => window.history.back()}
       onVerified={() => {
