@@ -13,9 +13,11 @@ import api from "@/lib/api";
 
 const columns = [
   { key: "pending", label: "Pending", variant: "warning" as const, icon: Clock },
+  { key: "pending_manual", label: "Needs Review", variant: "warning" as const, icon: AlertTriangle },
   { key: "submitted", label: "Applied", variant: "default" as const, icon: Briefcase },
   { key: "interview", label: "Interview", variant: "success" as const, icon: CheckCircle },
   { key: "rejected", label: "Rejected", variant: "destructive" as const, icon: XCircle },
+  { key: "failed", label: "Failed", variant: "destructive" as const, icon: XCircle },
 ];
 
 export default function ApplicationsPage() {
@@ -56,7 +58,11 @@ export default function ApplicationsPage() {
   });
 
   const getByStatus = (status: string) =>
-    filteredApps.filter((a) => a.status === status || (status === "submitted" && a.status === "applied"));
+    filteredApps.filter((a) => {
+      if (status === "pending_manual") return a.status === "pending_manual" || (a.status === "submitted" && a.approval_status === "pending_approval");
+      if (status === "submitted") return a.status === "submitted" || a.status === "applied";
+      return a.status === status;
+    });
 
   if (loading) return <LoadingSpinner />;
 
@@ -82,9 +88,11 @@ export default function ApplicationsPage() {
         <TabsList>
           <TabsTrigger value="all">All ({applications.length})</TabsTrigger>
           {columns.map((col) => {
-            const count = applications.filter(
-              (a) => a.status === col.key || (col.key === "submitted" && a.status === "applied")
-            ).length;
+            const count = applications.filter((a) => {
+              if (col.key === "pending_manual") return a.status === "pending_manual" || (a.status === "submitted" && a.approval_status === "pending_approval");
+              if (col.key === "submitted") return a.status === "submitted" || a.status === "applied";
+              return a.status === col.key;
+            }).length;
             return (
               <TabsTrigger key={col.key} value={col.key}>
                 {col.label} ({count})

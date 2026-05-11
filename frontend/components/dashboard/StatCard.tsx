@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
@@ -11,6 +12,7 @@ interface StatCardProps {
   changeType?: "up" | "down" | "neutral";
   icon: LucideIcon;
   iconColor?: string;
+  href?: string;
 }
 
 export default function StatCard({
@@ -20,8 +22,9 @@ export default function StatCard({
   changeType = "neutral",
   icon: Icon,
   iconColor = "bg-primary-500/10 text-primary-500",
+  href,
 }: StatCardProps) {
-  return (
+  const card = (
     <Card className="hover:shadow-md transition-shadow">
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
@@ -48,4 +51,9 @@ export default function StatCard({
       </CardContent>
     </Card>
   );
+
+  if (href) {
+    return <Link href={href}>{card}</Link>;
+  }
+  return card;
 }

@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Save, Plus, X, Eye, EyeOff, Shield, CheckCircle, ChevronDown, ChevronUp, Puzzle } from "lucide-react";
+import { Save, Plus, X, Eye, EyeOff, Shield, CheckCircle, ChevronDown, ChevronUp, Puzzle, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,6 +53,8 @@ export default function ProfilePage() {
   const [credSaving, setCredSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [credError, setCredError] = useState("");
+  const [applyMode, setApplyMode] = useState<string>("manual");
+  const [modeSaving, setModeSaving] = useState(false);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -83,6 +85,7 @@ export default function ProfilePage() {
         }
         setResumes(resumeRes.data || []);
         setCredentials(credRes.data || []);
+        setApplyMode(user.application_mode || "manual");
       } catch {
         // ignore
       } finally {
@@ -194,6 +197,18 @@ export default function ProfilePage() {
   };
 
   const isLinked = (platform: string) => credentials.some((c) => c.platform === platform);
+
+  const handleModeChange = async (mode: string) => {
+    setModeSaving(true);
+    try {
+      await api.patch("/users/me/application-mode", { mode });
+      setApplyMode(mode);
+    } catch {
+      alert("Failed to update apply mode");
+    } finally {
+      setModeSaving(false);
+    }
+  };
   const getLinked = (platform: string) => credentials.find((c) => c.platform === platform);
 
   const platformLabel = (p: string) => (p === "linkedin" ? "LinkedIn" : "Naukri");
@@ -337,6 +352,45 @@ export default function ProfilePage() {
             </div>
           )}
           <ResumeUploader onUpload={handleResumeUpload} />
+        </CardContent>
+      </Card>
+
+      <Separator className="my-8" />
+
+      {/* Apply Mode */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="w-5 h-5 text-primary-500" />
+            Apply Mode
+          </CardTitle>
+          <p className="text-sm text-muted-foreground mt-1">
+            Control how JobBlitz submits applications on your behalf.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {([
+              { value: "manual", label: "Manual", desc: "You review and submit each application yourself" },
+              { value: "assisted", label: "Assisted", desc: "AI fills forms, you approve before submitting" },
+              { value: "auto", label: "Auto", desc: "Fully automatic — AI finds and applies for you" },
+            ] as const).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                disabled={modeSaving}
+                onClick={() => handleModeChange(opt.value)}
+                className={`p-4 rounded-xl border text-left transition-colors ${
+                  applyMode === opt.value
+                    ? "border-primary-500 bg-primary-500/10 text-foreground"
+                    : "border-border hover:border-muted-foreground text-foreground"
+                }`}
+              >
+                <p className="font-semibold text-sm">{opt.label}</p>
+                <p className="text-xs text-muted-foreground mt-1">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
