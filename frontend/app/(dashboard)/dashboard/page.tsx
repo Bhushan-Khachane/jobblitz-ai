@@ -89,7 +89,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           title="Applications Submitted"
           value={todayCount}
@@ -113,6 +113,15 @@ export default function DashboardPage() {
           iconColor="bg-green-500/10 text-green-400"
           change="scheduled"
           changeType="neutral"
+        />
+        <StatCard
+          title="Pending Approval"
+          value={pendingApprovalCount}
+          icon={ClipboardCheck}
+          iconColor="bg-orange-500/10 text-orange-400"
+          change={pendingApprovalCount > 0 ? "needs review" : "all clear"}
+          changeType={pendingApprovalCount > 0 ? "down" : "up"}
+          href="/approval-queue"
         />
         <StatCard
           title="Success Rate"

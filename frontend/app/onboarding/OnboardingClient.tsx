@@ -3,7 +3,8 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, Briefcase, Shield, ChevronRight, ChevronLeft, Check, Zap, ExternalLink } from "lucide-react";
+import { Upload, Briefcase, Shield, ChevronRight, ChevronLeft, Check, Zap } from "lucide-react";
+import CloudBrowserModal from "@/components/dashboard/CloudBrowserModal";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -36,6 +37,7 @@ export default function OnboardingClient() {
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [sessions, setSessions] = useState<Record<string, any>>({});
 
   const prefForm = useForm<PrefValues>({
     resolver: zodResolver(prefSchema),
@@ -78,6 +80,15 @@ export default function OnboardingClient() {
       setStep(3);
     } catch {
       setStep(3);
+    }
+  };
+
+  const handleConnect = async (platformId: string) => {
+    try {
+      const res = await api.post(`/login-sessions?platform=${platformId}`);
+      setSessions((prev) => ({ ...prev, [platformId]: res.data }));
+    } catch (e: any) {
+      alert(e.response?.data?.detail || "Failed to start browser session");
     }
   };
 
@@ -248,22 +259,32 @@ export default function OnboardingClient() {
                         { id: "linkedin", label: "LinkedIn", color: "bg-blue-500/10 border-blue-500/30 text-blue-400" },
                         { id: "naukri", label: "Naukri", color: "bg-amber-500/10 border-amber-500/30 text-amber-400" },
                       ].map((platform) => (
-                        <div
-                          key={platform.id}
-                          className={`flex items-center justify-between p-4 border rounded-lg ${platform.color}`}
-                        >
-                          <div>
-                            <p className="font-medium capitalize text-foreground">{platform.label}</p>
-                            <p className="text-xs text-muted-foreground">Secure browser login</p>
-                          </div>
-                          <a
-                            href={`/connect/${platform.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-4 py-2 bg-primary-500 text-primary-foreground rounded-lg text-sm hover:bg-primary-600 flex items-center gap-1"
+                        <div key={platform.id} className="space-y-3">
+                          <div
+                            className={`flex items-center justify-between p-4 border rounded-lg ${platform.color}`}
                           >
-                            Connect <ExternalLink className="w-3 h-3" />
-                          </a>
+                            <div>
+                              <p className="font-medium capitalize text-foreground">{platform.label}</p>
+                              <p className="text-xs text-muted-foreground">Secure browser login</p>
+                            </div>
+                            <button
+                              onClick={() => handleConnect(platform.id)}
+                              className="px-4 py-2 bg-primary-500 text-primary-foreground rounded-lg text-sm hover:bg-primary-600 flex items-center gap-1"
+                            >
+                              Connect
+                            </button>
+                          </div>
+                          {sessions[platform.id] && (
+                            <CloudBrowserModal
+                              platform={platform.id}
+                              streamUrl={sessions[platform.id].stream_url}
+                              token={sessions[platform.id].token}
+                              containerId={sessions[platform.id].container_id}
+                              expiresAt={sessions[platform.id].expires_at}
+                              onClose={() => setSessions((prev) => { const n = {...prev}; delete n[platform.id]; return n; })}
+                              onVerified={() => setSessions((prev) => { const n = {...prev}; delete n[platform.id]; return n; })}
+                            />
+                          )}
                         </div>
                       ))}
 

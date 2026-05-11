@@ -27,14 +27,17 @@ export function useApplicationStream(userId: string) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
 
     // Initial fetch via REST API
     async function fetchInitial() {
       try {
         const res = await api.get("/applications/");
         const data = res.data;
-        setApplications(data.applications || data.items || data);
+        setApplications(data.items || data.applications || data || []);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to fetch applications");
       } finally {

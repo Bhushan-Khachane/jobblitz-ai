@@ -131,6 +131,10 @@ export default function ConnectPage() {
         ))}
       </div>
 
+      <p className="text-xs text-white/30 mt-4 text-center">
+        Shine, Unstop, Wellfound & Internshala are scraped directly — no login needed.
+      </p>
+
       {activeSession && (
         <CloudBrowserModal
           platform={activeSession.platform}

@@ -48,6 +48,9 @@ interface User {
   phone: string | null;
   location: string | null;
   is_active: boolean;
+  application_mode: string;
+  daily_apply_limit: number;
+  plan: string;
 }
 
 interface Profile {
@@ -132,7 +135,7 @@ interface PaginatedResponse<T> {
   items: T[];
   total: number;
   page: number;
-  per_page: number;
+  page_size: number;
 }
 
 // ── Auth API ────────────────────────────────────────────────────────────────

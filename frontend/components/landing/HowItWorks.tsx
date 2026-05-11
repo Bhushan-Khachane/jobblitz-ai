@@ -26,7 +26,7 @@ const steps = [
 
 export default function HowItWorks() {
   return (
-    <section id="how-it-works" className="py-24 bg-white">
+    <section id="how-it-works" className="py-24 bg-[#050508]">
       <div className="max-w-6xl mx-auto px-6">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -34,8 +34,8 @@ export default function HowItWorks() {
           viewport={{ once: true }}
           className="text-center mb-16"
         >
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900">How it works</h2>
-          <p className="mt-4 text-lg text-gray-500">Three simple steps to automate your job search.</p>
+          <h2 className="text-3xl md:text-4xl font-bold text-white">How it works</h2>
+          <p className="mt-4 text-lg text-white/50">Three simple steps to automate your job search.</p>
         </motion.div>
 
         <div className="grid md:grid-cols-3 gap-12">
@@ -49,15 +49,15 @@ export default function HowItWorks() {
               className="text-center"
             >
               <div className="relative inline-flex items-center justify-center mb-6">
-                <div className="w-20 h-20 rounded-2xl bg-indigo-50 flex items-center justify-center">
-                  <s.icon className="w-8 h-8 text-indigo-600" />
+                <div className="w-20 h-20 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                  <s.icon className="w-8 h-8 text-indigo-400" />
                 </div>
-                <span className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-indigo-600 text-white text-sm font-bold flex items-center justify-center">
+                <span className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-indigo-600 text-white text-sm font-bold flex items-center justify-center border border-indigo-400/30">
                   {s.num}
                 </span>
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-3">{s.title}</h3>
-              <p className="text-gray-500 leading-relaxed">{s.desc}</p>
+              <h3 className="text-xl font-semibold text-white mb-3">{s.title}</h3>
+              <p className="text-white/50 leading-relaxed">{s.desc}</p>
             </motion.div>
           ))}
         </div>

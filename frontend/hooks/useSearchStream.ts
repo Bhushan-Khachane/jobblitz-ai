@@ -29,7 +29,10 @@ export function useSearchStream(userId: string) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
 
     // Initial fetch via REST API
     async function fetchInitial() {

@@ -28,7 +28,7 @@ const faqs = [
 
 export default function FAQ() {
   return (
-    <section id="faq" className="py-24 bg-white">
+    <section id="faq" className="py-24 bg-[#050508]">
       <div className="max-w-3xl mx-auto px-6">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -36,8 +36,8 @@ export default function FAQ() {
           viewport={{ once: true }}
           className="text-center mb-12"
         >
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900">Frequently asked questions</h2>
-          <p className="mt-4 text-lg text-gray-500">Everything you need to know about JobBlitz.</p>
+          <h2 className="text-3xl md:text-4xl font-bold text-white">Frequently asked questions</h2>
+          <p className="mt-4 text-lg text-white/50">Everything you need to know about JobBlitz.</p>
         </motion.div>
 
         <motion.div
@@ -47,9 +47,9 @@ export default function FAQ() {
         >
           <Accordion type="single" collapsible className="w-full">
             {faqs.map((faq, i) => (
-              <AccordionItem key={i} value={`item-${i}`}>
-                <AccordionTrigger className="text-left font-medium text-gray-900">{faq.q}</AccordionTrigger>
-                <AccordionContent className="text-gray-600 leading-relaxed">{faq.a}</AccordionContent>
+              <AccordionItem key={i} value={`item-${i}`} className="border-white/5">
+                <AccordionTrigger className="text-left font-medium text-white">{faq.q}</AccordionTrigger>
+                <AccordionContent className="text-white/60 leading-relaxed">{faq.a}</AccordionContent>
               </AccordionItem>
             ))}
           </Accordion>

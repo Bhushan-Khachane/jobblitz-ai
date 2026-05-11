@@ -32,6 +32,10 @@ interface JobSearch {
 const platformColors: Record<string, string> = {
   linkedin: "bg-blue-500/15 text-blue-400",
   naukri: "bg-amber-500/15 text-amber-400",
+  shine: "bg-orange-500/15 text-orange-400",
+  unstop: "bg-purple-500/15 text-purple-400",
+  wellfound: "bg-cyan-500/15 text-cyan-400",
+  internshala: "bg-green-500/15 text-green-400",
   both: "bg-primary-500/15 text-primary-500",
 };
 
