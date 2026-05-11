@@ -273,6 +273,7 @@ class LoginSession(Base):
     iframe_url: Mapped[str] = mapped_column(Text, nullable=False)
     token: Mapped[str] = mapped_column(String(100), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="creating")  # creating/active/cookies_saved/expired
+    cdp_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     cookies_path: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

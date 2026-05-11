@@ -6,6 +6,7 @@ import MatchScoreBadge from "./MatchScoreBadge";
 const COLUMNS = [
   { key: "discovered", label: "Discovered", color: "border-gray-500" },
   { key: "pending", label: "Pending", color: "border-amber-500" },
+  { key: "pending_manual", label: "Manual Required", color: "border-orange-500" },
   { key: "submitted", label: "Applied", color: "border-primary-500" },
   { key: "interview", label: "Interview", color: "border-green-500" },
   { key: "rejected", label: "Rejected", color: "border-destructive" },
@@ -26,6 +27,7 @@ export default function PipelineKanban({ userId }: { userId: string }) {
     ...col,
     items: applications.filter((app) => {
       if (col.key === "pending") return app.status === "pending" && !app.approval_status;
+      if (col.key === "pending_manual") return app.status === "pending_manual" || (app.status === "pending" && app.approval_status === "pending_approval");
       return app.status === col.key;
     }),
   }));

@@ -100,14 +100,17 @@ async def scrape_naukri_jobs(
     # Naukri URL slugs only support a single keyword phrase; use the first one
     first_kw = keywords.split(",")[0].strip()
     slug = re.sub(r"[^a-z0-9-]", "", first_kw.replace(" ", "-").lower())
-    loc_slug = (location or "").replace(" ", "-").lower()
+    loc_slug = re.sub(r"[^a-z0-9-]", "", (location or "").replace(" ", "-").lower())
     exp_map = {"fresher": "0", "1": "1", "2": "2", "3": "3", "5": "5", "7": "7", "10": "10"}
     exp = exp_map.get(experience_level or "", "0")
 
     url = f"https://www.naukri.com/{slug}-jobs"
     if loc_slug:
         url = f"https://www.naukri.com/{slug}-jobs-in-{loc_slug}"
-    url += f"?experience={exp}"
+    url += f"?k={first_kw.replace(' ', '+')}"
+    if loc_slug:
+        url += f"&l={location.replace(' ', '+')}"
+    url += f"&experience={exp}"
 
     data_dir = str(user_data_dir) if user_data_dir else str(Path(settings.UPLOAD_DIR) / ".naukri_ctx")
 

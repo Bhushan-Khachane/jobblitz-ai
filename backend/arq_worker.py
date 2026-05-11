@@ -59,6 +59,7 @@ class WorkerSettings:
     cron_jobs = [
         cron(discover_jobs, minute=0, hour="*/2"),       # Every 2 hours
         cron(batch_auto_apply, minute="*/30"),            # Every 30 minutes
+        cron(retry_failed, minute=15, hour="*/1"),       # Every hour at :15
         cron(cleanup_old_listings, hour=2, minute=0),     # Weekly Sunday 2am (day_of_week=0)
         cron(check_application_statuses, hour=9, minute=0),  # Daily 9am
         cron(cleanup_sessions, minute="*/5"),             # Every 5 minutes

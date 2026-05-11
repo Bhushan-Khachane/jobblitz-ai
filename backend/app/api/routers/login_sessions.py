@@ -49,6 +49,7 @@ async def create_session(
             iframe_url=session.stream_url,
             token=session.token,
             status="active",
+            cdp_url=session.cdp_url,
             expires_at=session.expires_at,
         )
         db.add(login_session)
@@ -81,8 +82,8 @@ async def get_session_status(
         if not session:
             raise HTTPException(status_code=404, detail="No active session found")
 
-        # Check actual login status via Neko CDP — pass cdp_url derived from iframe_url + port
-        status = await neko_manager.check_login_status(session.container_id, platform)
+        # Check actual login status via Neko CDP — pass stored cdp_url
+        status = await neko_manager.check_login_status(session.container_id, platform, cdp_url=session.cdp_url)
 
         if status == "success":
             session.status = "cookies_saved"
@@ -136,7 +137,17 @@ async def verify_login(
     user: User = Depends(get_current_user),
 ):
     """Check if the user has successfully logged in to the platform."""
-    status = await neko_manager.check_login_status(container_id, platform)
+    # Look up stored cdp_url from the session record
+    cdp_url = None
+    async with _async_session() as db:
+        result = await db.execute(
+            select(LoginSession).where(LoginSession.container_id == container_id)
+        )
+        session = result.scalar_one_or_none()
+        if session:
+            cdp_url = session.cdp_url
+
+    status = await neko_manager.check_login_status(container_id, platform, cdp_url=cdp_url)
 
     if status == "success":
         # Automatically extract and store cookies

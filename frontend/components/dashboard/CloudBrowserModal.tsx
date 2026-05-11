@@ -97,8 +97,8 @@ export default function CloudBrowserModal({
           </p>
         </div>
 
-        {/* Browser iframe */}
-        <div className="flex-1 h-full">
+        {/* Browser iframe — reserve bottom space for footer when iframe is active */}
+        <div className="flex-1 relative" style={{ height: "calc(100% - 56px)" }}>
           {status === "success" ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
@@ -137,21 +137,24 @@ export default function CloudBrowserModal({
           ) : (
             <iframe
               src={`${streamUrl}?token=${token}`}
-              className="w-full h-full border-0"
+              className="w-full border-0"
+              style={{ height: "100%" }}
               title={`${platform} Login`}
             />
           )}
         </div>
 
-        {/* Footer */}
-        <div className="absolute bottom-0 left-0 right-0 p-3 bg-[#0e0e10]/90 backdrop-blur-sm">
-          <button
-            onClick={checkStatus}
-            className="w-full px-4 py-2 bg-primary-500 text-primary-foreground rounded-lg hover:bg-primary-600 transition-colors"
-          >
-            I&apos;m logged in — Save Session
-          </button>
-        </div>
+        {/* Footer — only visible when iframe is active */}
+        {status !== "success" && status !== "expired" && (
+          <div className="p-3 bg-[#0e0e10]/90 backdrop-blur-sm border-t border-[#2a2a2e]">
+            <button
+              onClick={checkStatus}
+              className="w-full px-4 py-2 bg-primary-500 text-primary-foreground rounded-lg hover:bg-primary-600 transition-colors"
+            >
+              I&apos;m logged in — Save Session
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

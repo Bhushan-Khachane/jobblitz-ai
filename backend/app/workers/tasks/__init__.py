@@ -348,11 +348,13 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
 
         if success:
             if assisted_mode:
-                application.status = "submitted"
+                application.status = "pending_manual"
                 application.approval_status = "pending_approval"
+                listing.status = "pending_manual"
             else:
                 application.status = "submitted"
-            application.applied_at = datetime.now(timezone.utc)
+                listing.status = "applied"
+                application.applied_at = datetime.now(timezone.utc)
         else:
             # External apply jobs are not failures — just skip them
             if error and "external apply" in error.lower():
@@ -384,126 +386,35 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
 
 
 async def retry_failed(ctx: dict) -> dict:
-    """Retry pending applications that had a first failure."""
+    """Re-enqueue failed applications that haven't hit max retries."""
+    from arq import create_pool
+    from arq.connections import RedisSettings
+
     retried = 0
-    async with _async_session() as db:
-        result = await db.execute(
-            select(Application).where(Application.status == "pending", Application.retry_count == 1)
-        )
-        apps = result.scalars().all()
-
-        for app in apps:
-            try:
-                listing_result = await db.execute(select(JobListing).where(JobListing.id == app.job_listing_id))
-                listing = listing_result.scalar_one_or_none()
-                if not listing:
-                    continue
-
-                user_result = await db.execute(select(User).where(User.id == app.user_id))
-                user = user_result.scalar_one_or_none()
-                if not user:
-                    continue
-
-                cred_result = await db.execute(
-                    select(Credential).where(
-                        Credential.user_id == app.user_id,
-                        Credential.platform == listing.platform,
-                        Credential.is_active == True,
-                    )
+    redis_pool = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    try:
+        async with _async_session() as db:
+            result = await db.execute(
+                select(Application).where(
+                    Application.status == "failed",
+                    Application.retry_count < 3,
                 )
-                credential = cred_result.scalar_one_or_none()
-                if not credential:
-                    continue
+            )
+            apps = result.scalars().all()
 
-                prof_result = await db.execute(select(Profile).where(Profile.user_id == app.user_id))
-                profile = prof_result.scalar_one_or_none()
-                profile_dict = {
-                    "full_name": user.full_name,
-                    "email": user.email,
-                    "phone": user.phone or "",
-                    "location": user.location or "",
-                    "first_name": user.full_name.split()[0] if user.full_name else "",
-                    "last_name": " ".join(user.full_name.split()[1:]) if user.full_name and len(user.full_name.split()) > 1 else "",
-                    "headline": profile.headline or "" if profile else "",
-                    "summary": profile.summary or "" if profile else "",
-                    "skills": profile.skills or [] if profile else [],
-                    "experience": profile.experience or {} if profile else {},
-                    "education": profile.education or {} if profile else {},
-                }
-
-                resume_path = None
-                if app.resume_id:
-                    res_result = await db.execute(select(Resume).where(Resume.id == app.resume_id))
-                    resume = res_result.scalar_one_or_none()
-                    if resume:
-                        resume_path = resume.file_path
-
-                # Apply using browser pool + ATS router
-                from app.services.browser_pool import browser_pool
-                from app.services.ats_router import route_apply
-                from app.services.circuit_breaker import circuit_breaker
-
-                # Check circuit breaker before attempting
-                if await circuit_breaker.is_open(listing.platform):
-                    logger.warning(f"Circuit open for {listing.platform}, skipping retry")
-                    continue
-
-                success = False
-                error = None
-                screenshot_path = None
-                answers_used = None
-                try:
-                    browser_ctx = await browser_pool.acquire(task_type="apply", user_tier="pro" if user.daily_apply_limit > 50 else "free")
-                    page = await browser_ctx.new_page()
-                    try:
-                        job_dict = {
-                            "id": str(listing.id),
-                            "title": listing.title,
-                            "company": listing.company,
-                            "apply_url": listing.apply_url,
-                            "platform": listing.platform,
-                            "description": listing.description,
-                        }
-                        result = await route_apply(page, job_dict, profile_dict, resume_path)
-                        success = result.success
-                        error = result.error
-                        screenshot_path = result.screenshot
-                        answers_used = result.answers_used
-                        # Record circuit breaker outcome
-                        if success:
-                            await circuit_breaker.record_success(listing.platform)
-                        else:
-                            await circuit_breaker.record_failure(listing.platform)
-                    finally:
-                        await page.close()
-                        await browser_pool.release(browser_ctx)
-                except Exception as apply_err:
-                    success = False
-                    error = str(apply_err)
-                    await circuit_breaker.record_failure(listing.platform)
-                    logger.error(f"Apply failed for listing {app.job_listing_id}: {apply_err}", exc_info=True)
-
-                if success:
-                    app.status = "submitted"
-                    app.applied_at = datetime.now(timezone.utc)
-                    listing.status = "applied"
-                else:
-                    app.status = "failed"
-                    app.error_message = error
-                    listing.status = "failed"
-
-                app.screenshot_path = screenshot_path
-                app.answers_used = answers_used
-                await db.commit()
+            for app in apps:
+                await redis_pool.enqueue_job(
+                    "auto_apply",
+                    user_id=str(app.user_id),
+                    job_listing_id=str(app.job_listing_id),
+                    resume_id=str(app.resume_id) if app.resume_id else None,
+                )
+                app.retry_count += 1
                 retried += 1
 
-            except Exception as e:
-                await db.rollback()
-                logger.error(
-                    f"Retry failed for application {app.id} (listing {app.job_listing_id}): {e}",
-                    exc_info=True,
-                )
-                continue
+            await db.commit()
+    finally:
+        await redis_pool.close()
 
     return {"retried": retried}
 
@@ -647,6 +558,16 @@ async def batch_auto_apply(ctx: dict) -> dict:
                     )
                 )
                 if not cred_result.scalar_one_or_none():
+                    continue
+
+                # Skip if an active application already exists for this listing
+                existing_app = await db.execute(
+                    select(Application).where(
+                        Application.job_listing_id == listing.id,
+                        Application.status.in_(["submitted", "applied", "pending_manual", "queued", "pending"]),
+                    )
+                )
+                if existing_app.scalar_one_or_none():
                     continue
 
                 # Get user's default resume
