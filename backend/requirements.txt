@@ -20,11 +20,10 @@ alembic==1.14.0
 httpx==0.28.1
 aiofiles==24.1.0
 google-generativeai==0.8.3
-sentence-transformers==3.3.1
-torch==2.5.1
+# sentence-transformers & torch are optional (heavy ~2GB) — matcher.py falls back to token overlap if missing
 hcloud==2.4.0
 docker==7.1.0
-opentelemetry-api==1.28.0
-opentelemetry-sdk==1.28.0
-opentelemetry-instrumentation-fastapi==0.49b2
-opentelemetry-instrumentation-sqlalchemy==0.49b0
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-instrumentation-sqlalchemy==0.50b0

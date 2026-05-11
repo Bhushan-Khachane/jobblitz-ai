@@ -37,6 +37,7 @@ services:
       - ./backend/.env
     environment:
       - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001
+      - LOGIN_HOST=host.docker.internal
     depends_on:
       postgres:
         condition: service_healthy
@@ -65,6 +66,8 @@ services:
     command: arq arq_worker.WorkerSettings
     env_file:
       - ./backend/.env
+    environment:
+      - LOGIN_HOST=host.docker.internal
     depends_on:
       - postgres
       - redis
@@ -76,6 +79,17 @@ services:
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  neko:
+    build:
+      context: ./docker/neko
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+    image: jobblitz-neko:latest
+    profiles:
+      - neko-build
+    command: ["echo", "Neko image ready"]
 
 volumes:
   pgdata:

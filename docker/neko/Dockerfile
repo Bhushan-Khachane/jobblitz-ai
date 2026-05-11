@@ -1,4 +1,6 @@
-FROM ghcr.io/m1k1o/neko:chromium
+# --platform=linux/amd64 required: m1k1o/neko:chromium has no ARM64 variant
+# On Apple Silicon, Docker Desktop runs this via Rosetta/QEMU emulation.
+FROM --platform=linux/amd64 m1k1o/neko:chromium
 
 # Neko cloud browser for login sessions
 # Users log in through this streamed browser — JobBlitz never handles passwords.

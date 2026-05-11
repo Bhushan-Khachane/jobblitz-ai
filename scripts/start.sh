@@ -3,6 +3,13 @@ set -e
 
 echo "🚀 Starting JobBlitz AI..."
 
+# Check Docker is running
+if ! docker info > /dev/null 2>&1; then
+  echo "❌ ERROR: Docker is not running. Start Docker Desktop or dockerd first."
+  exit 1
+fi
+echo "  ✓ Docker daemon running"
+
 # Check required env files
 if [ ! -f backend/.env ]; then
   echo "❌ ERROR: backend/.env not found. Copy backend/.env.example to backend/.env and fill in values."
@@ -19,6 +26,13 @@ if ! grep -q "NEXT_PUBLIC_API_URL" frontend/.env 2>/dev/null; then
   echo "NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1" >> frontend/.env
   echo "  ✓ Set NEXT_PUBLIC_API_URL in frontend/.env"
 fi
+
+# Build Neko image first (needed for cloud browser sessions)
+# Uses m1k1o/neko:chromium from Docker Hub — no GHCR auth required
+# --platform=linux/amd64 needed on Apple Silicon (no ARM64 variant available)
+echo "🌐 Building Neko cloud browser image..."
+docker build --platform=linux/amd64 -t jobblitz-neko:latest ./docker/neko/
+echo "  ✓ Neko image ready: jobblitz-neko:latest"
 
 # Pull latest images
 docker compose pull redis postgres

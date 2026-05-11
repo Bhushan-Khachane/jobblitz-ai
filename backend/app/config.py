@@ -35,9 +35,9 @@ class Settings(BaseSettings):
     PROXY_ENABLED: bool = False
 
     # ── Neko Cloud Browser ─────────────────────────────────────────────────────
-    NEKO_IMAGE: str = "ghcr.io/m1k1o/neko:chromium"
+    NEKO_IMAGE: str = "jobblitz-neko:latest"
     NEKO_SESSION_TTL_MINUTES: int = 10
-    LOGIN_HOST: str = "localhost"
+    LOGIN_HOST: str = "host.docker.internal"
 
     # ── App Version ─────────────────────────────────────────────────────────────
     VERSION: str = "1.0.0"
