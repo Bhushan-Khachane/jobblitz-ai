@@ -13,7 +13,9 @@ from app.database import get_db
 from app.dependencies import get_current_user, rate_limiter
 from app.models import Application, Credential, JobListing, Profile, Resume, User
 from app.schemas import ApplicationResponse, ApplicationStatusUpdate, ApplyRequest
-from app.workers.tasks import auto_apply_task
+from arq import create_pool
+from arq.connections import RedisSettings
+from app.config import settings
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -142,12 +144,15 @@ async def apply_to_job_endpoint(
     await db.commit()
     await db.refresh(application)
 
-    # Dispatch background task
-    auto_apply_task.delay(
+    # Dispatch background task via ARQ
+    redis_pool = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    await redis_pool.enqueue_job(
+        "auto_apply",
         user_id=str(user.id),
         job_listing_id=str(job_listing_id),
         resume_id=str(resume_id),
     )
+    await redis_pool.close()
 
     return application
 
@@ -258,12 +263,15 @@ async def approve_application(
     app.status = "pending"
     await db.commit()
 
-    # Dispatch the auto-apply task
-    auto_apply_task.delay(
+    # Dispatch the auto-apply task via ARQ
+    redis_pool = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    await redis_pool.enqueue_job(
+        "auto_apply",
         user_id=str(user.id),
         job_listing_id=str(app.job_listing_id),
         resume_id=str(app.resume_id) if app.resume_id else None,
     )
+    await redis_pool.close()
 
     return {"message": "Application approved and queued", "application_id": str(app.id)}
 

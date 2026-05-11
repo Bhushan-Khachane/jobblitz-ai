@@ -10,7 +10,9 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import JobSearch, User
 from app.schemas import JobSearchCreate, JobSearchResponse, JobSearchUpdate
-from app.workers.tasks import discover_jobs_task
+from arq import create_pool
+from arq.connections import RedisSettings
+from app.config import settings
 
 router = APIRouter(prefix="/job-searches", tags=["job_searches"])
 
@@ -104,6 +106,8 @@ async def trigger_search(
     if not search.is_active:
         raise HTTPException(status_code=400, detail="Search is paused. Enable it first.")
 
-    # Dispatch the task for this specific search
-    task = discover_jobs_task.delay()
-    return {"message": f"Job discovery triggered for search '{search.name}'", "task_id": task.id}
+    # Dispatch the discovery task via ARQ
+    redis_pool = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    job = await redis_pool.enqueue_job("discover_jobs")
+    await redis_pool.close()
+    return {"message": f"Job discovery triggered for search '{search.name}'", "job_id": job.job_id if job else None}

@@ -4,19 +4,20 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    /* Dark SaaS theme: midnight-teal */
+    --background: 240 5% 6%;        /* #0e0e10 */
+    --foreground: 0 0% 94%;         /* #f0f0f0 */
+    --card: 240 4% 10%;             /* #1a1a1e */
+    --card-foreground: 0 0% 94%;
+    --muted: 240 3% 16%;            /* #242428 */
+    --muted-foreground: 240 5% 55%; /* #8a8a8e */
+    --accent: 174 100% 39%;         /* #00c7b7 teal */
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3% 18%;           /* #2a2a2e */
+    --input: 240 3% 18%;
+    --ring: 174 100% 39%;
     --radius: 0.5rem;
   }
 }
@@ -26,6 +27,7 @@
     @apply border-border;
   }
   body {
-    @apply bg-white text-foreground;
+    @apply bg-[#0e0e10] text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
   }
 }

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from celery import shared_task, signals
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -21,11 +19,6 @@ logger = logging.getLogger(__name__)
 _async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-def _run_async(coro):
-    """Run an async coroutine from a sync Celery task."""
-    return asyncio.run(coro)
-
-
 async def _log_to_dead_letter(task_name: str, task_args: dict | None, error_message: str, retry_count: int = 0) -> None:
     """Log a failed task to the dead-letter table for later inspection/replay."""
     async with _async_session() as db:
@@ -39,33 +32,8 @@ async def _log_to_dead_letter(task_name: str, task_args: dict | None, error_mess
         await db.commit()
 
 
-@signals.worker_process_init.connect
-def init_worker(**kwargs):
-    """Dispose SQLAlchemy engine after fork to avoid connection-pool loop conflicts."""
-    asyncio.run(engine.dispose())
-
-
-@shared_task(name="app.workers.tasks.discover_jobs_task", autoretry_for=(Exception,), max_retries=1, retry_backoff=120)
-def discover_jobs_task() -> dict:
-    """Discover jobs for all active searches."""
-    try:
-        return _run_async(_discover_jobs_async())
-    except Exception as e:
-        asyncio.run(_log_to_dead_letter(
-            task_name="app.workers.tasks.discover_jobs_task",
-            task_args=None,
-            error_message=str(e),
-        ))
-        raise
-
-
 def _build_keywords(profile: Profile | None, search_keywords: str) -> str:
-    """Build search keywords from resume profile data when auto_match is enabled.
-
-    Merges the user's original search keywords with job titles + key skills from
-    the profile. Falls back to original search keywords when no profile data
-    exists.
-    """
+    """Build search keywords from resume profile data when auto_match is enabled."""
     base = search_keywords.strip()
     if not profile:
         return base
@@ -91,11 +59,13 @@ def _build_keywords(profile: Profile | None, search_keywords: str) -> str:
     return ", ".join(parts)
 
 
-async def _discover_jobs_async() -> dict:
+# ── ARQ Task Functions ──────────────────────────────────────────────────────────
+
+
+async def discover_jobs(ctx: dict) -> dict:
+    """Discover jobs for all active searches. Runs every 2 hours via ARQ cron."""
     total_discovered = 0
-    await engine.dispose()
     async with _async_session() as db:
-        # Get all active searches
         result = await db.execute(select(JobSearch).where(JobSearch.is_active == True))
         searches = result.scalars().all()
 
@@ -167,7 +137,7 @@ async def _discover_jobs_async() -> dict:
                     match_score = None
                     match_explanation = None
                     if resume_text:
-                        result = match_job_to_resume_detailed(
+                        result_obj = await match_job_to_resume_detailed(
                             job_title=job_data.get("title", ""),
                             job_description=job_data.get("description", ""),
                             resume_text=resume_text,
@@ -178,10 +148,10 @@ async def _discover_jobs_async() -> dict:
                             preferred_locations=profile.preferred_locations if profile else None,
                             expected_salary_lpa=profile.expected_salary_lpa if profile else None,
                             notice_period_days=profile.notice_period_days if profile else None,
-                            experience_years=None,  # TODO: extract from profile
+                            experience_years=None,
                         )
-                        match_score = result.final_score
-                        match_explanation = result.to_dict()
+                        match_score = result_obj.final_score
+                        match_explanation = result_obj.to_dict()
 
                         # Skip low-match jobs
                         if match_score is not None and match_score < settings.MIN_MATCH_SCORE_TO_SAVE:
@@ -242,26 +212,9 @@ async def _discover_jobs_async() -> dict:
     return {"discovered": total_discovered}
 
 
-@shared_task(name="app.workers.tasks.auto_apply_task", autoretry_for=(Exception,), max_retries=2, retry_backoff=60)
-def auto_apply_task(user_id: str, job_listing_id: str, resume_id: str | None = None) -> dict:
-    """Apply to a specific job listing. Retries up to 2 times on failure, then dead-letters."""
-    try:
-        return _run_async(_auto_apply_async(user_id, job_listing_id, resume_id))
-    except Exception as e:
-        retries = auto_apply_task.request.retries or 0
-        if retries >= 2:
-            logger.error(f"auto_apply_task dead-lettered after {retries} retries: {e}")
-            asyncio.run(_log_to_dead_letter(
-                task_name="app.workers.tasks.auto_apply_task",
-                task_args={"user_id": user_id, "job_listing_id": job_listing_id, "resume_id": resume_id},
-                error_message=str(e),
-                retry_count=retries,
-            ))
-        raise
-
-
-async def _auto_apply_async(user_id: str, job_listing_id: str, resume_id: str | None) -> dict:
-    await engine.dispose()
+async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: str | None = None) -> dict:
+    """Apply to a specific job listing. Retries up to 3 times on failure, then dead-letters."""
+    job_try = ctx.get("job_try", 1)
     uid = uuid.UUID(user_id)
     lid = uuid.UUID(job_listing_id)
 
@@ -277,6 +230,7 @@ async def _auto_apply_async(user_id: str, job_listing_id: str, resume_id: str | 
             if existing_app.status in ("submitted", "applied"):
                 logger.info(f"Skipping duplicate apply for {idempotency_key} — already {existing_app.status}")
                 return {"success": True, "application_id": str(existing_app.id), "skipped": True}
+
         # Get user
         user_result = await db.execute(select(User).where(User.id == uid))
         user = user_result.scalar_one_or_none()
@@ -331,7 +285,7 @@ async def _auto_apply_async(user_id: str, job_listing_id: str, resume_id: str | 
             if resume:
                 resume_path = resume.file_path
 
-        # Create application
+        # Create application record
         application = Application(
             user_id=uid,
             job_listing_id=lid,
@@ -343,36 +297,36 @@ async def _auto_apply_async(user_id: str, job_listing_id: str, resume_id: str | 
         await db.commit()
         await db.refresh(application)
 
-        # Apply using LLM browser agent
-        # Lazy import to avoid circular imports and celery_beat crashes
-        from app.services.agent_service import apply_to_job_with_agent
+        # Apply using browser pool + ATS router
+        from app.services.browser_pool import browser_pool
+        from app.services.ats_router import route_apply
 
         success = False
         error = None
         screenshot_path = None
-        answers = {}
         try:
-            async for event in apply_to_job_with_agent(
-                user_id=uid,
-                platform=listing.platform,
-                username=credential.username,
-                encrypted_password=credential.encrypted_password,
-                job_url=listing.apply_url or "",
-                profile=profile_dict,
-                resume_path=resume_path,
-            ):
-                if event.get("event") == "complete":
-                    success = event.get("success", False)
-                    error = None if success else event.get("result")
-                    screenshot_path = event.get("screenshot_path")
-                elif event.get("event") == "error":
-                    success = False
-                    error = event.get("result")
-                    screenshot_path = event.get("screenshot_path")
-        except Exception as agent_err:
+            ctx = await browser_pool.acquire(task_type="apply", user_tier="pro" if user.daily_apply_limit > 50 else "free")
+            page = await ctx.new_page()
+            try:
+                job_dict = {
+                    "id": str(listing.id),
+                    "title": listing.title,
+                    "company": listing.company,
+                    "apply_url": listing.apply_url,
+                    "platform": listing.platform,
+                    "description": listing.description,
+                }
+                result = await route_apply(page, job_dict, profile_dict, resume_path)
+                success = result.success
+                error = result.error
+                screenshot_path = result.screenshot
+            finally:
+                await page.close()
+                await browser_pool.release(ctx)
+        except Exception as apply_err:
             success = False
-            error = str(agent_err)
-            logger.error(f"Agent apply failed for listing {lid}: {agent_err}", exc_info=True)
+            error = str(apply_err)
+            logger.error(f"Apply failed for listing {lid}: {apply_err}", exc_info=True)
 
         if success:
             application.status = "submitted"
@@ -395,18 +349,21 @@ async def _auto_apply_async(user_id: str, job_listing_id: str, resume_id: str | 
         application.answers_used = answers
         await db.commit()
 
+        # Dead-letter on final failure
+        if not success and job_try >= 3:
+            await _log_to_dead_letter(
+                task_name="auto_apply",
+                task_args={"user_id": user_id, "job_listing_id": job_listing_id, "resume_id": resume_id},
+                error_message=error or "Unknown error",
+                retry_count=job_try,
+            )
+
         return {"success": success, "application_id": str(application.id), "error": error}
 
 
-@shared_task(name="app.workers.tasks.retry_failed_task")
-def retry_failed_task() -> dict:
+async def retry_failed(ctx: dict) -> dict:
     """Retry pending applications that had a first failure."""
-    return _run_async(_retry_failed_async())
-
-
-async def _retry_failed_async() -> dict:
     retried = 0
-    await engine.dispose()
     async with _async_session() as db:
         result = await db.execute(
             select(Application).where(Application.status == "pending", Application.retry_count == 1)
@@ -459,36 +416,36 @@ async def _retry_failed_async() -> dict:
                     if resume:
                         resume_path = resume.file_path
 
-                # Apply using LLM browser agent
-                # Lazy import to avoid circular imports and celery_beat crashes
-                from app.services.agent_service import apply_to_job_with_agent
+                # Apply using browser pool + ATS router
+                from app.services.browser_pool import browser_pool
+                from app.services.ats_router import route_apply
 
                 success = False
                 error = None
                 screenshot_path = None
-                answers = {}
                 try:
-                    async for event in apply_to_job_with_agent(
-                        user_id=app.user_id,
-                        platform=listing.platform,
-                        username=credential.username,
-                        encrypted_password=credential.encrypted_password,
-                        job_url=listing.apply_url or "",
-                        profile=profile_dict,
-                        resume_path=resume_path,
-                    ):
-                        if event.get("event") == "complete":
-                            success = event.get("success", False)
-                            error = None if success else event.get("result")
-                            screenshot_path = event.get("screenshot_path")
-                        elif event.get("event") == "error":
-                            success = False
-                            error = event.get("result")
-                            screenshot_path = event.get("screenshot_path")
-                except Exception as agent_err:
+                    ctx = await browser_pool.acquire(task_type="apply", user_tier="pro" if user.daily_apply_limit > 50 else "free")
+                    page = await ctx.new_page()
+                    try:
+                        job_dict = {
+                            "id": str(listing.id),
+                            "title": listing.title,
+                            "company": listing.company,
+                            "apply_url": listing.apply_url,
+                            "platform": listing.platform,
+                            "description": listing.description,
+                        }
+                        result = await route_apply(page, job_dict, profile_dict, resume_path)
+                        success = result.success
+                        error = result.error
+                        screenshot_path = result.screenshot
+                    finally:
+                        await page.close()
+                        await browser_pool.release(ctx)
+                except Exception as apply_err:
                     success = False
-                    error = str(agent_err)
-                    logger.error(f"Agent apply failed for listing {app.job_listing_id}: {agent_err}", exc_info=True)
+                    error = str(apply_err)
+                    logger.error(f"Apply failed for listing {app.job_listing_id}: {apply_err}", exc_info=True)
 
                 if success:
                     app.status = "submitted"
@@ -515,23 +472,15 @@ async def _retry_failed_async() -> dict:
     return {"retried": retried}
 
 
-@shared_task(name="app.workers.tasks.notify_user_task")
-def notify_user_task(user_id: str, message: str) -> dict:
+async def notify_user(ctx: dict, user_id: str, message: str) -> dict:
     """Placeholder for user notification (email/push)."""
-    # In production, integrate with email/SMS/push notification service
     return {"user_id": user_id, "message": message, "sent": True}
 
 
-@shared_task(name="app.workers.tasks.cleanup_old_listings_task")
-def cleanup_old_listings_task() -> dict:
+async def cleanup_old_listings(ctx: dict) -> dict:
     """Delete job listings older than 30 days that were never applied to."""
-    return _run_async(_cleanup_old_listings_async())
-
-
-async def _cleanup_old_listings_async() -> dict:
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     deleted = 0
-    await engine.dispose()
     async with _async_session() as db:
         try:
             result = await db.execute(
@@ -555,16 +504,10 @@ async def _cleanup_old_listings_async() -> dict:
     return {"deleted": deleted}
 
 
-@shared_task(name="app.workers.tasks.check_application_statuses_task")
-def check_application_statuses_task() -> dict:
+async def check_application_statuses(ctx: dict) -> dict:
     """Check for stale pending/failed applications and mark them."""
-    return _run_async(_check_application_statuses_async())
-
-
-async def _check_application_statuses_async() -> dict:
     stale_cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
     updated = 0
-    await engine.dispose()
     async with _async_session() as db:
         try:
             # Mark applications stuck in pending for > 48h as failed
@@ -605,17 +548,12 @@ async def _check_application_statuses_async() -> dict:
     return {"updated": updated}
 
 
-@shared_task(name="app.workers.tasks.batch_auto_apply_task")
-def batch_auto_apply_task() -> dict:
-    """Dispatch auto_apply_task for all discovered listings, respecting rate limits."""
-    return _run_async(_batch_auto_apply_async())
-
-
-async def _batch_auto_apply_async() -> dict:
+async def batch_auto_apply(ctx: dict) -> dict:
+    """Dispatch auto_apply for all discovered listings, respecting rate limits."""
     dispatched = 0
     queued_for_approval = 0
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    await engine.dispose()
+
     async with _async_session() as db:
         try:
             # Get discovered job listings with sufficient match score
@@ -629,8 +567,14 @@ async def _batch_auto_apply_async() -> dict:
 
             # Group listings by user_id for rate-limit checking
             user_counts: dict[str, int] = {}
-            # Cache user objects to avoid repeated queries
             user_cache: dict[str, User] = {}
+
+            # We need the ARQ pool to enqueue jobs
+            from arq import create_pool
+            from arq.connections import RedisSettings
+
+            redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
+            redis_pool = await create_pool(redis_settings)
 
             for listing in listings:
                 uid = str(listing.user_id)
@@ -644,7 +588,7 @@ async def _batch_auto_apply_async() -> dict:
                     user_cache[uid] = user
                 user = user_cache[uid]
 
-                # Count today's applications for this user (cached per batch run)
+                # Count today's applications for this user
                 if uid not in user_counts:
                     count_result = await db.execute(
                         select(Application).where(
@@ -678,13 +622,11 @@ async def _batch_auto_apply_async() -> dict:
                 application_mode = getattr(user, "application_mode", "assisted") or "assisted"
 
                 if application_mode == "manual":
-                    # Manual mode: just mark as discovered, user applies themselves
                     listing.status = "discovered"
                     continue
 
                 if application_mode == "assisted":
                     # Assisted mode: create application with pending_approval status
-                    # User must approve before we auto-apply
                     app = Application(
                         user_id=listing.user_id,
                         job_listing_id=listing.id,
@@ -693,56 +635,24 @@ async def _batch_auto_apply_async() -> dict:
                         approval_status="pending_approval",
                     )
                     db.add(app)
-                    # Keep listing status as "discovered" — it's not yet applied
                     await db.commit()
                     queued_for_approval += 1
                     user_counts[uid] += 1
                     continue
 
-                # Auto mode: dispatch the individual apply task directly
-                auto_apply_task.delay(
+                # Auto mode: enqueue the individual apply task
+                await redis_pool.enqueue_job(
+                    "auto_apply",
                     user_id=uid,
                     job_listing_id=str(listing.id),
                 )
                 user_counts[uid] += 1
                 dispatched += 1
 
+            await redis_pool.close()
+
         except Exception as e:
             logger.error(f"Batch auto-apply dispatch failed: {e}", exc_info=True)
             raise
 
     return {"dispatched": dispatched, "queued_for_approval": queued_for_approval}
-
-
-# ── Celery Beat schedule ─────────────────────────────────────────────────────
-
-from celery.schedules import crontab
-from app.workers.celery_app import celery_app
-
-celery_app.conf.beat_schedule = {
-    "discover-jobs-every-2-hours": {
-        "task": "app.workers.tasks.discover_jobs_task",
-        "schedule": crontab(minute=0, hour="*/2"),
-        "options": {"queue": "default"},
-    },
-    "auto-apply-every-30-mins": {
-        "task": "app.workers.tasks.batch_auto_apply_task",
-        "schedule": crontab(minute="*/30"),
-        "options": {"queue": "default"},
-    },
-    "cleanup-old-data-weekly": {
-        "task": "app.workers.tasks.cleanup_old_listings_task",
-        "schedule": crontab(hour=2, minute=0, day_of_week=0),
-        "options": {"queue": "default"},
-    },
-    "check-application-status-daily": {
-        "task": "app.workers.tasks.check_application_statuses_task",
-        "schedule": crontab(hour=9, minute=0),
-        "options": {"queue": "default"},
-    },
-}
-
-celery_app.conf.task_routes = {
-    "app.workers.tasks.auto_apply_task": {"queue": "apply_queue"},
-    "app.workers.tasks.*": {"queue": "default"},
-}

@@ -1,21 +1,11 @@
 from __future__ import annotations
 
-from openai import AsyncOpenAI
+import json
+import logging
 
-from app.config import settings
+from app.services.llm_client import get_llm_client
 
-_client: AsyncOpenAI | None = None
-
-
-def _get_client() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        _client = AsyncOpenAI(
-            api_key=settings.OPENROUTER_API_KEY,
-            base_url=settings.OPENROUTER_BASE_URL,
-        )
-    return _client
-
+logger = logging.getLogger(__name__)
 
 RESUME_TAILOR_SYSTEM = (
     "You are an expert resume writer. Given a resume and job description, rewrite the resume "
@@ -53,17 +43,8 @@ MATCH_JOB_RESUME_SYSTEM = (
 
 
 async def _chat(system: str, user: str) -> str:
-    client = _get_client()
-    response = await client.chat.completions.create(
-        model=settings.OPENROUTER_MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        temperature=0.7,
-        max_tokens=2048,
-    )
-    return response.choices[0].message.content or ""
+    client = get_llm_client()
+    return await client.generate(system=system, user=user)
 
 
 async def resume_tailor(resume_text: str, job_description: str) -> str:
@@ -92,47 +73,14 @@ async def answer_question(question: str, candidate_profile: str) -> str:
     return await _chat(QUESTION_ANSWER_SYSTEM, user_msg)
 
 
-import json
-import logging
-
-logger = logging.getLogger(__name__)
-
-
 async def extract_resume_profile(resume_text: str) -> dict:
     """Use LLM to extract structured profile data from raw resume text."""
+    client = get_llm_client()
     user_msg = f"### RESUME\n{resume_text}\n\nExtract the structured profile."
-    raw = await _chat(EXTRACT_RESUME_PROFILE_SYSTEM, user_msg)
-
-    # Strip markdown code fences if present
-    raw = raw.strip()
-    if raw.startswith("```json"):
-        raw = raw[7:]
-    if raw.startswith("```"):
-        raw = raw[3:]
-    if raw.endswith("```"):
-        raw = raw[:-3]
-    raw = raw.strip()
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse LLM resume extraction response: {e}. Raw: {raw[:500]}")
-        return {}
-
-    # Normalize fields
-    result = {
-        "skills": _to_str_list(data.get("skills")),
-        "job_titles": _to_str_list(data.get("job_titles")),
-        "headline": _to_str(data.get("headline")),
-        "summary": _to_str(data.get("summary")),
-        "experience_years": _to_int(data.get("experience_years")),
-        "education": data.get("education") if isinstance(data.get("education"), list) else [],
-        "experience": data.get("experience") if isinstance(data.get("experience"), list) else [],
-    }
-    return result
+    return await client.generate_structured(EXTRACT_RESUME_PROFILE_SYSTEM, user_msg)
 
 
-async def match_job_to_resume(job_description: str, resume_text: str) -> float:
+async def match_job_to_resume_llm(job_description: str, resume_text: str) -> float:
     """Return match score 0.0-1.0 using LLM."""
     user_msg = f"### RESUME\n{resume_text}\n\n### JOB DESCRIPTION\n{job_description}"
     raw = await _chat(MATCH_JOB_RESUME_SYSTEM, user_msg)

@@ -8,7 +8,7 @@ python-jose[cryptography]==3.3.0
 bcrypt==4.0.1
 passlib[bcrypt]==1.7.4
 cryptography==44.0.0
-celery[redis]==5.4.0
+arq==0.25.0
 redis==5.2.1
 playwright==1.49.1
 playwright-stealth==1.0.6
@@ -18,9 +18,13 @@ openai==1.58.1
 python-multipart==0.0.20
 alembic==1.14.0
 httpx==0.28.1
-thefuzz==0.20.0
-python-Levenshtein==0.25.1
 aiofiles==24.1.0
-browser-use==0.1.40
-langchain-openai==0.3.1
-langchain-core==0.3.35
+google-generativeai==0.8.3
+sentence-transformers==3.3.1
+torch==2.5.1
+hcloud==2.4.0
+docker==7.1.0
+opentelemetry-api==1.28.0
+opentelemetry-sdk==1.28.0
+opentelemetry-instrumentation-fastapi==0.49b2
+opentelemetry-instrumentation-sqlalchemy==0.49b0

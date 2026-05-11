@@ -1,0 +1,77 @@
+version: "3.9"
+
+services:
+  backend:
+    image: jobblitz/api:${VERSION:-latest}
+    command: infisical run --env=prod -- uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    environment:
+      - ALLOWED_ORIGINS=https://jobblitz.ai,https://api.jobblitz.ai
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=Host(`api.jobblitz.ai`)
+      - traefik.http.routers.api.tls.certresolver=letsencrypt
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.services.api.loadbalancer.server.port=8000
+    depends_on:
+      arq_worker:
+        condition: service_started
+
+  arq_worker:
+    image: jobblitz/api:${VERSION:-latest}
+    command: infisical run --env=prod -- python -m arq arq_worker.WorkerSettings
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+    environment:
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+  neko_host:
+    image: jobblitz/api:${VERSION:-latest}
+    command: python -m app.services.neko_manager
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  frontend:
+    image: jobblitz/frontend:${VERSION:-latest}
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.frontend.rule=Host(`jobblitz.ai`) || Host(`www.jobblitz.ai`)
+      - traefik.http.routers.frontend.tls.certresolver=letsencrypt
+      - traefik.http.routers.frontend.entrypoints=websecure
+      - traefik.http.services.frontend.loadbalancer.server.port=3000
+
+  traefik:
+    image: traefik:v3
+    command:
+      - --providers.docker
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --certificatesresolvers.letsencrypt.acme.email=dev@jobblitz.ai
+      - --certificatesresolvers.letsencrypt.acme.storage=/acme.json
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./acme.json:/acme.json
+    restart: unless-stopped
+
+  infisical:
+    image: infisical/infisical:latest
+    environment:
+      - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}
+      - JWT_SIGNUP_SECRET=${INFISICAL_JWT_SECRET}
+    ports:
+      - "8081:8080"
+    restart: unless-stopped

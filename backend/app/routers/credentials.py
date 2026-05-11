@@ -137,12 +137,17 @@ async def test_credential(
         raise HTTPException(status_code=404, detail="Credential not found")
 
     try:
-        from app.services.agent_service import test_login_with_agent
-        login_ok, message = await test_login_with_agent(
-            platform=cred.platform,
-            username=cred.username,
-            encrypted_password=cred.encrypted_password,
-        )
+        from app.services.neko_manager import neko_manager
+        session = await neko_manager.create_session(str(user.id), cred.platform)
+        return {
+            "platform": cred.platform,
+            "success": False,
+            "message": "Credential testing is now handled via cloud browser login. Use /api/v1/login-sessions to create a session.",
+            "stream_url": session.stream_url,
+            "tested_at": datetime.now(timezone.utc).isoformat(),
+            "deprecated": True,
+            "new_endpoint": "/api/v1/login-sessions",
+        }
     except Exception as e:
         return {
             "platform": cred.platform,
@@ -150,10 +155,3 @@ async def test_credential(
             "message": f"Test failed with error: {str(e)[:300]}",
             "tested_at": datetime.now(timezone.utc).isoformat(),
         }
-
-    return {
-        "platform": cred.platform,
-        "success": login_ok,
-        "message": message,
-        "tested_at": datetime.now(timezone.utc).isoformat(),
-    }

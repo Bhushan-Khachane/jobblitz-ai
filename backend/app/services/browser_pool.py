@@ -1,0 +1,147 @@
+"""Persistent browser pool for Playwright.
+
+Maintains N browser contexts that tasks borrow and return.
+No new browser launch per task — contexts are reused with cookie isolation.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import random
+from typing import Any
+
+from playwright.async_api import Browser, BrowserContext, Playwright, async_playwright
+
+from app.config.proxy import get_proxy
+
+logger = logging.getLogger(__name__)
+
+# Viewport sizes for rotation
+VIEWPORTS = [
+    {"width": 1366, "height": 768},
+    {"width": 1440, "height": 900},
+    {"width": 1536, "height": 864},
+    {"width": 1280, "height": 720},
+]
+
+# User agents for rotation
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+]
+
+
+class BrowserPool:
+    """Maintains a pool of persistent browser contexts for reuse.
+
+    Tasks borrow a context, use it, and return it with cookies cleared.
+    No new browser is spawned per task.
+    """
+
+    def __init__(self, pool_size: int = 3):
+        self._pool_size = pool_size
+        self._pool: asyncio.Queue[BrowserContext] = asyncio.Queue(maxsize=pool_size)
+        self._browser: Browser | None = None
+        self._playwright: Playwright | None = None
+        self._initialized = False
+
+    async def initialize(self, task_type: str = "discovery", user_tier: str = "free") -> None:
+        """Launch the browser and create the context pool."""
+        if self._initialized:
+            return
+
+        self._playwright = await async_playwright().start()
+        proxy_url = get_proxy(task_type, user_tier)
+        launch_args = [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-features=IsolateOrigins,site-per-process",
+        ]
+
+        launch_kwargs: dict[str, Any] = {
+            "headless": True,
+            "args": launch_args,
+        }
+        if proxy_url:
+            launch_kwargs["proxy"] = {"server": proxy_url}
+
+        self._browser = await self._playwright.chromium.launch(**launch_kwargs)
+
+        for i in range(self._pool_size):
+            viewport = VIEWPORTS[i % len(VIEWPORTS)]
+            user_agent = USER_AGENTS[i % len(USER_AGENTS)]
+            context = await self._browser.new_context(
+                viewport=viewport,
+                user_agent=user_agent,
+            )
+            await self._pool.put(context)
+
+        self._initialized = True
+        logger.info(f"BrowserPool initialized with {self._pool_size} contexts")
+
+    async def acquire(self, task_type: str = "discovery", user_tier: str = "free") -> BrowserContext:
+        """Borrow a browser context from the pool. Returns after 30s timeout."""
+        if not self._initialized:
+            await self.initialize(task_type, user_tier)
+
+        try:
+            ctx = await asyncio.wait_for(self._pool.get(), timeout=30.0)
+            logger.debug(f"Acquired browser context (pool remaining: {self._pool.qsize()})")
+            return ctx
+        except asyncio.TimeoutError:
+            logger.warning("Browser pool exhausted — creating temporary context")
+            # Fallback: create a temporary context
+            viewport = random.choice(VIEWPORTS)
+            user_agent = random.choice(USER_AGENTS)
+            return await self._browser.new_context(viewport=viewport, user_agent=user_agent)
+
+    def available_count(self) -> int:
+        """Return number of available contexts in the pool."""
+        return self._pool.qsize()
+
+    async def release(self, ctx: BrowserContext) -> None:
+        """Return a browser context to the pool after clearing cookies."""
+        try:
+            await ctx.clear_cookies()
+            # Close all pages in the context
+            for page in ctx.pages:
+                await page.close()
+            await self._pool.put(ctx)
+            logger.debug(f"Released browser context (pool available: {self._pool.qsize()})")
+        except Exception as e:
+            logger.warning(f"Failed to release browser context: {e}")
+            # If release fails, create a replacement context
+            if self._browser:
+                try:
+                    new_ctx = await self._browser.new_context(
+                        viewport=random.choice(VIEWPORTS),
+                        user_agent=random.choice(USER_AGENTS),
+                    )
+                    await self._pool.put(new_ctx)
+                except Exception:
+                    logger.error("Failed to create replacement browser context")
+
+    async def shutdown(self) -> None:
+        """Close all browser contexts and the browser instance."""
+        # Drain and close all pooled contexts
+        while not self._pool.empty():
+            try:
+                ctx = self._pool.get_nowait()
+                await ctx.close()
+            except Exception:
+                pass
+
+        if self._browser:
+            await self._browser.close()
+        if self._playwright:
+            await self._playwright.stop()
+        self._initialized = False
+        logger.info("BrowserPool shut down")
+
+
+# Global singleton
+browser_pool = BrowserPool(pool_size=3)

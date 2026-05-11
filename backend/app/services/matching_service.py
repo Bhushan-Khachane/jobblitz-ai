@@ -2,7 +2,7 @@
 Hybrid job-resume matching service.
 
 Combines:
-1. Token-overlap scoring (fast, interpretable baseline)
+1. Semantic embedding scoring (sentence-transformers cosine similarity)
 2. India-specific normalization (LPA, notice period, city clusters, title variants)
 3. Rule-based hard filters (deal-breakers)
 4. Structured score breakdown with explanations
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import math
+import asyncio
 from dataclasses import dataclass, field
 
 
@@ -211,13 +212,12 @@ def _parse_lpa(salary_str: str | None) -> float | None:
 
 # ── Main matching function ─────────────────────────────────────────────────────
 
-def match_job_to_resume(
+async def match_job_to_resume(
     job_title: str,
     job_description: str,
     resume_text: str,
     profile_skills: list[str] | None = None,
     profile_job_titles: list[str] | None = None,
-    # New optional fields for India-specific scoring
     job_location: str | None = None,
     job_salary: str | None = None,
     preferred_locations: list[str] | None = None,
@@ -226,14 +226,15 @@ def match_job_to_resume(
     job_notice_period_days: int | None = None,
     job_seniority: str | None = None,
     experience_years: int | None = None,
+    resume_id: str | None = None,
 ) -> float:
     """
-    Return a match score between 0.0 and 1.0.
+    Return a match score between 0.0 and 1.0 using semantic matching.
 
     This is the backward-compatible entry point that returns a single float.
     For structured results, use `match_job_to_resume_detailed()`.
     """
-    result = match_job_to_resume_detailed(
+    result = await match_job_to_resume_detailed(
         job_title=job_title,
         job_description=job_description,
         resume_text=resume_text,
@@ -247,11 +248,12 @@ def match_job_to_resume(
         job_notice_period_days=job_notice_period_days,
         job_seniority=job_seniority,
         experience_years=experience_years,
+        resume_id=resume_id,
     )
     return result.final_score
 
 
-def match_job_to_resume_detailed(
+async def match_job_to_resume_detailed(
     job_title: str,
     job_description: str,
     resume_text: str,
@@ -265,13 +267,17 @@ def match_job_to_resume_detailed(
     job_notice_period_days: int | None = None,
     job_seniority: str | None = None,
     experience_years: int | None = None,
+    resume_id: str | None = None,
 ) -> MatchResult:
     """
     Detailed matching with per-dimension scores and explanations.
 
+    Uses semantic embeddings for fit_score and India-specific heuristics
+    for compensation, location, and seniority scoring.
+
     Returns a MatchResult with:
-    - fit_score: skill and experience overlap
-    - role_quality_score: title match quality
+    - fit_score: semantic similarity (embedding cosine)
+    - role_quality_score: title match quality (token-based)
     - compensation_score: salary alignment
     - location_score: location preference match
     - confidence_score: how confident we are in the match
@@ -282,42 +288,26 @@ def match_job_to_resume_detailed(
     profile_skills = profile_skills or []
     profile_job_titles = profile_job_titles or []
 
-    job_combined = f"{job_title} {job_description or ''}"
-    job_tokens = _tokenize(job_combined)
-    job_bigrams = _extract_ngrams(job_combined, 2)
+    # ── 1. Fit Score (semantic embedding similarity) ────────────────────────
+    try:
+        from app.services.matcher import semantic_fit_score
 
-    resume_tokens = _tokenize(resume_text or "")
-    resume_bigrams = _extract_ngrams(resume_text or "", 2)
-
-    # Expand skills with synonyms
-    expanded_skills = _expand_skills(profile_skills)
-    skill_tokens = set()
-    for skill in expanded_skills:
-        skill_tokens.update(_tokenize(skill))
-    if not skill_tokens:
-        skill_tokens = resume_tokens
-
-    # ── 1. Fit Score (skill overlap + description coverage) ────────────────
-    # Token-level overlap (unigrams)
-    skill_token_overlap = len(job_tokens & skill_tokens)
-    skill_token_total = max(len(job_tokens), 1)
-
-    # Bigram-level overlap (ordered phrases)
-    skill_text = " ".join(expanded_skills) if expanded_skills else (resume_text or "")
-    skill_bigrams = _extract_ngrams(skill_text, 2)
-    skill_bigram_overlap = len(job_bigrams & skill_bigrams)
-
-    skill_score = (skill_token_overlap + skill_bigram_overlap) / max(skill_token_total + len(job_bigrams), 1)
-
-    desc_token_overlap = len(job_tokens & resume_tokens)
-    desc_bigram_overlap = len(job_bigrams & resume_bigrams)
-    desc_score = (desc_token_overlap + desc_bigram_overlap) / max(len(job_tokens) + len(job_bigrams), 1)
-
-    # Weight description more when we have a substantial job description
-    if len(job_tokens) < 10:
-        fit_score = skill_score * 0.80 + desc_score * 0.20
-    else:
-        fit_score = skill_score * 0.55 + desc_score * 0.45
+        fit_score = await semantic_fit_score(
+            job_title=job_title,
+            job_description=job_description,
+            resume_text=resume_text,
+            profile_skills=profile_skills,
+            resume_id=resume_id,
+        )
+    except Exception as e:
+        logger.warning(f"Semantic matching failed, using fallback: {e}")
+        # Fallback to simple token overlap if embeddings unavailable
+        job_tokens = _tokenize(f"{job_title} {job_description or ''}")
+        resume_tokens = _tokenize(resume_text or "")
+        if not job_tokens:
+            fit_score = 0.0
+        else:
+            fit_score = len(job_tokens & resume_tokens) / max(len(job_tokens), 1)
 
     # ── 2. Role Quality Score (title match) ────────────────────────────────
     job_title_norm = _normalize_title(job_title)
@@ -467,8 +457,7 @@ def match_job_to_resume_detailed(
 
     # ── 9. Build Explanation ────────────────────────────────────────────────
     explanation = {
-        "skill_match": round(skill_score, 3),
-        "description_coverage": round(desc_score, 3),
+        "semantic_fit": round(fit_score, 3),
         "title_match": round(role_quality_score, 3),
         "compensation": compensation_detail,
         "location": location_detail,

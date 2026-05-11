@@ -256,3 +256,24 @@ class DeadLetterLog(Base):
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LoginSession(Base):
+    """Neko cloud browser session for platform login (no passwords stored)."""
+    __tablename__ = "login_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    platform: Mapped[str] = mapped_column(String(50), nullable=False)  # linkedin / naukri
+    container_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    container_ip: Mapped[str | None] = mapped_column(String(50))
+    iframe_url: Mapped[str] = mapped_column(Text, nullable=False)
+    token: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="creating")  # creating/active/cookies_saved/expired
+    cookies_path: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    user: Mapped["User"] = relationship("User")

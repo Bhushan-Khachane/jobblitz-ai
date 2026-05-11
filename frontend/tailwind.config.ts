@@ -11,17 +11,17 @@ const config: Config = {
     extend: {
       colors: {
         primary: {
-          50: "#eef2ff",
-          100: "#e0e7ff",
-          200: "#c7d2fe",
-          300: "#a5b4fc",
-          400: "#818cf8",
-          500: "#6366f1",
-          600: "#4f46e5",
-          700: "#4338ca",
-          800: "#3730a3",
-          900: "#312e81",
-          950: "#1e1b4b",
+          50: "#edfff9",
+          100: "#d5fff0",
+          200: "#aeffe1",
+          300: "#70ffc9",
+          400: "#2bfdaa",
+          500: "#00c7b7",
+          600: "#009e96",
+          700: "#007e79",
+          800: "#006462",
+          900: "#005351",
+          950: "#003534",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -43,6 +43,10 @@ const config: Config = {
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
+        },
+        surface: {
+          DEFAULT: "#1a1a1e",
+          elevated: "#242428",
         },
       },
       borderRadius: {
