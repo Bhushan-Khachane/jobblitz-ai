@@ -81,7 +81,7 @@ export default function AnalyticsPage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
+      <h1 className="text-2xl font-bold text-foreground">Analytics</h1>
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -89,7 +89,7 @@ export default function AnalyticsPage() {
           title="Total Applied"
           value={totalApplied}
           icon={BarChart3}
-          iconColor="bg-indigo-50 text-indigo-600"
+          iconColor="bg-primary-500/10 text-primary-500"
           change={`${overview?.total_jobs_discovered || 0} jobs discovered`}
           changeType="neutral"
         />
@@ -97,7 +97,7 @@ export default function AnalyticsPage() {
           title="Response Rate"
           value={`${responseRate}%`}
           icon={Target}
-          iconColor="bg-green-50 text-green-600"
+          iconColor="bg-green-500/10 text-green-600"
           change={`${interviewCount} interviews`}
           changeType="up"
         />
@@ -105,7 +105,7 @@ export default function AnalyticsPage() {
           title="Success Rate"
           value={`${overview?.success_rate || 0}%`}
           icon={TrendingUp}
-          iconColor="bg-amber-50 text-amber-600"
+          iconColor="bg-amber-500/10 text-amber-600"
           change="submitted / total"
           changeType="neutral"
         />
@@ -120,7 +120,7 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent>
             {daily.length === 0 ? (
-              <div className="h-64 flex items-center justify-center text-gray-400 text-sm">
+              <div className="h-64 flex items-center justify-center text-muted-foreground/70 text-sm">
                 No data yet. Start applying to see trends.
               </div>
             ) : (
@@ -168,7 +168,7 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent>
             {statusData.length === 0 ? (
-              <div className="h-64 flex items-center justify-center text-gray-400 text-sm">
+              <div className="h-64 flex items-center justify-center text-muted-foreground/70 text-sm">
                 No applications yet.
               </div>
             ) : (
@@ -196,8 +196,8 @@ export default function AnalyticsPage() {
                   {statusData.map((s, i) => (
                     <div key={s.name} className="flex items-center gap-2 text-sm">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                      <span className="text-gray-600">{s.name}</span>
-                      <span className="font-semibold text-gray-900 ml-auto">{s.value}</span>
+                      <span className="text-muted-foreground">{s.name}</span>
+                      <span className="font-semibold text-foreground ml-auto">{s.value}</span>
                     </div>
                   ))}
                 </div>

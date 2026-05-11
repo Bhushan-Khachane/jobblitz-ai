@@ -9,10 +9,13 @@ Combines:
 """
 from __future__ import annotations
 
+import logging
 import re
 import math
 import asyncio
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 # ── India-specific normalization ──────────────────────────────────────────────
@@ -313,6 +316,9 @@ async def match_job_to_resume_detailed(
     job_title_norm = _normalize_title(job_title)
     job_title_tokens = _tokenize(job_title_norm)
     job_title_bigrams = _extract_ngrams(job_title_norm, 2)
+    # Compute unconditionally — needed for the else branch below
+    resume_tokens = _tokenize(resume_text or "")
+    resume_bigrams = _extract_ngrams(resume_text or "", 2)
 
     if profile_job_titles:
         title_scores = []

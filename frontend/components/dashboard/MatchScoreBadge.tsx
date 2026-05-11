@@ -20,7 +20,7 @@ export default function MatchScoreBadge({ score, size = "md" }: MatchScoreBadgeP
       ? "bg-green-500/20 text-green-400 border-green-500/30"
       : percentage >= 60
         ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
-        : "bg-gray-500/20 text-gray-400 border-gray-500/30";
+        : "bg-gray-500/20 text-muted-foreground/70 border-gray-500/30";
 
   const sizeClass =
     size === "sm"

@@ -5,43 +5,14 @@ import random
 import re
 from pathlib import Path
 
-from playwright.async_api import BrowserContext, Page, async_playwright
+from playwright.async_api import BrowserContext, Page
 from playwright_stealth import stealth_async
 
 from app.config import settings
 
-VIEWPORT_MIN = 1280
-VIEWPORT_MAX = 1920
-
 
 async def _random_delay(low: float = 1.0, high: float = 3.0) -> None:
     await asyncio.sleep(random.uniform(low, high))
-
-
-async def _create_context(playwright, user_data_dir: str | Path, browser: str = "chromium") -> tuple:
-    """Create a persistent browser context with stealth and random viewport."""
-    width = random.randint(VIEWPORT_MIN, VIEWPORT_MAX)
-    height = random.randint(800, 1080)
-    user_agent = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    )
-    if browser == "firefox":
-        context = await playwright.firefox.launch_persistent_context(
-            user_data_dir=str(user_data_dir),
-            headless=True,
-            viewport={"width": width, "height": height},
-            user_agent=user_agent,
-        )
-    else:
-        context = await playwright.chromium.launch_persistent_context(
-            user_data_dir=str(user_data_dir),
-            headless=True,
-            viewport={"width": width, "height": height},
-            user_agent=user_agent,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-    return context, width, height
 
 
 async def scrape_linkedin_jobs(
@@ -68,50 +39,51 @@ async def scrape_linkedin_jobs(
             params += f"&f_E={f_e}"
 
     url = base_url + params
-    data_dir = Path(user_data_dir) if user_data_dir else Path(settings.UPLOAD_DIR) / ".linkedin_ctx"
+    data_dir = str(user_data_dir) if user_data_dir else str(Path(settings.UPLOAD_DIR) / ".linkedin_ctx")
 
-    async with async_playwright() as pw:
-        context, _, _ = await _create_context(pw, data_dir)
-        try:
-            page: Page = await context.new_page()
-            await stealth_async(page)
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            await _random_delay(2, 4)
+    from app.services.scraper_browser import scraper_browser
+    context = await scraper_browser.get_context("linkedin", data_dir)
 
-            cards = await page.query_selector_all(".job-search-card")
-            for card in cards[:max_results]:
-                try:
-                    title_el = await card.query_selector(".base-search-card__title")
-                    company_el = await card.query_selector(".base-search-card__subtitle a")
-                    location_el = await card.query_selector(".job-search-card__location")
-                    link_el = await card.query_selector("a.base-card__full-link")
-                    date_el = await card.query_selector("time")
+    page: Page = await context.new_page()
+    try:
+        await stealth_async(page)
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        await _random_delay(2, 4)
 
-                    title = (await title_el.inner_text()).strip() if title_el else ""
-                    company = (await company_el.inner_text()).strip() if company_el else ""
-                    loc = (await location_el.inner_text()).strip() if location_el else ""
-                    href = await link_el.get_attribute("href") if link_el else ""
-                    posted = (await date_el.get_attribute("datetime")) if date_el else ""
-                    ext_id = ""
-                    if href:
-                        m = re.search(r"/view/[^/]*-(\d+)", href)
-                        if m:
-                            ext_id = m.group(1)
+        cards = await page.query_selector_all(".job-search-card")
+        for card in cards[:max_results]:
+            try:
+                title_el = await card.query_selector(".base-search-card__title")
+                company_el = await card.query_selector(".base-search-card__subtitle a")
+                location_el = await card.query_selector(".job-search-card__location")
+                link_el = await card.query_selector("a.base-card__full-link")
+                date_el = await card.query_selector("time")
 
-                    results.append({
-                        "title": title,
-                        "company": company,
-                        "location": loc,
-                        "description": "",
-                        "apply_url": href or "",
-                        "external_job_id": ext_id,
-                        "posted_date": posted,
-                        "platform": "linkedin",
-                    })
-                except Exception:
-                    continue
-        finally:
-            await context.close()
+                title = (await title_el.inner_text()).strip() if title_el else ""
+                company = (await company_el.inner_text()).strip() if company_el else ""
+                loc = (await location_el.inner_text()).strip() if location_el else ""
+                href = await link_el.get_attribute("href") if link_el else ""
+                posted = (await date_el.get_attribute("datetime")) if date_el else ""
+                ext_id = ""
+                if href:
+                    m = re.search(r"/view/[^/]*-(\d+)", href)
+                    if m:
+                        ext_id = m.group(1)
+
+                results.append({
+                    "title": title,
+                    "company": company,
+                    "location": loc,
+                    "description": "",
+                    "apply_url": href or "",
+                    "external_job_id": ext_id,
+                    "posted_date": posted,
+                    "platform": "linkedin",
+                })
+            except Exception:
+                continue
+    finally:
+        await page.close()
 
     return results
 
@@ -137,66 +109,66 @@ async def scrape_naukri_jobs(
         url = f"https://www.naukri.com/{slug}-jobs-in-{loc_slug}"
     url += f"?experience={exp}"
 
-    data_dir = Path(user_data_dir) if user_data_dir else Path(settings.UPLOAD_DIR) / ".naukri_ctx"
+    data_dir = str(user_data_dir) if user_data_dir else str(Path(settings.UPLOAD_DIR) / ".naukri_ctx")
 
-    async with async_playwright() as pw:
-        # Use Firefox to avoid Akamai bot detection on Naukri
-        context, _, _ = await _create_context(pw, data_dir, browser="firefox")
-        try:
-            page: Page = await context.new_page()
-            await page.goto(url, wait_until="networkidle", timeout=30000)
-            await _random_delay(2, 4)
+    from app.services.scraper_browser import scraper_browser
+    context = await scraper_browser.get_context("naukri", data_dir)
 
-            cards = await page.query_selector_all(".srp-jobtuple-wrapper")
-            for card in cards[:max_results]:
-                try:
-                    title_el = await card.query_selector("a.title")
-                    company_el = await card.query_selector("a.comp-name")
-                    location_el = await card.query_selector("span.locWdth")
-                    desc_el = await card.query_selector(".job-desc")
-                    salary_el = await card.query_selector(".sal")
-                    posted_el = await card.query_selector(".job-post-day")
+    page: Page = await context.new_page()
+    try:
+        await page.goto(url, wait_until="networkidle", timeout=30000)
+        await _random_delay(2, 4)
 
-                    title = ""
-                    href = ""
-                    if title_el:
-                        title = (await title_el.get_attribute("title")) or (await title_el.inner_text())
-                        title = title.strip()
-                        href = await title_el.get_attribute("href") or ""
+        cards = await page.query_selector_all(".srp-jobtuple-wrapper")
+        for card in cards[:max_results]:
+            try:
+                title_el = await card.query_selector("a.title")
+                company_el = await card.query_selector("a.comp-name")
+                location_el = await card.query_selector("span.locWdth")
+                desc_el = await card.query_selector(".job-desc")
+                salary_el = await card.query_selector(".sal")
+                posted_el = await card.query_selector(".job-post-day")
 
-                    company = ""
-                    if company_el:
-                        company = (await company_el.get_attribute("title")) or (await company_el.inner_text())
-                        company = company.strip()
+                title = ""
+                href = ""
+                if title_el:
+                    title = (await title_el.get_attribute("title")) or (await title_el.inner_text())
+                    title = title.strip()
+                    href = await title_el.get_attribute("href") or ""
 
-                    loc = (await location_el.get_attribute("title")) if location_el else ""
-                    if not loc and location_el:
-                        loc = (await location_el.inner_text()).strip()
+                company = ""
+                if company_el:
+                    company = (await company_el.get_attribute("title")) or (await company_el.inner_text())
+                    company = company.strip()
 
-                    desc = (await desc_el.inner_text()).strip() if desc_el else ""
-                    salary = (await salary_el.inner_text()).strip() if salary_el else ""
-                    posted = (await posted_el.inner_text()).strip() if posted_el else ""
+                loc = (await location_el.get_attribute("title")) if location_el else ""
+                if not loc and location_el:
+                    loc = (await location_el.inner_text()).strip()
 
-                    ext_id = ""
-                    if href:
-                        m = re.search(r"[-/](\d{6,})(?:\?|$)", href)
-                        if m:
-                            ext_id = m.group(1)
+                desc = (await desc_el.inner_text()).strip() if desc_el else ""
+                salary = (await salary_el.inner_text()).strip() if salary_el else ""
+                posted = (await posted_el.inner_text()).strip() if posted_el else ""
 
-                    results.append({
-                        "title": title,
-                        "company": company,
-                        "location": loc,
-                        "description": desc,
-                        "apply_url": href if href.startswith("http") else f"https://www.naukri.com{href}",
-                        "external_job_id": ext_id,
-                        "posted_date": posted,
-                        "salary_info": salary,
-                        "platform": "naukri",
-                    })
-                except Exception:
-                    continue
-        finally:
-            await context.close()
+                ext_id = ""
+                if href:
+                    m = re.search(r"[-/](\d{6,})(?:\?|$)", href)
+                    if m:
+                        ext_id = m.group(1)
+
+                results.append({
+                    "title": title,
+                    "company": company,
+                    "location": loc,
+                    "description": desc,
+                    "apply_url": href if href.startswith("http") else f"https://www.naukri.com{href}",
+                    "external_job_id": ext_id,
+                    "posted_date": posted,
+                    "salary_info": salary,
+                    "platform": "naukri",
+                })
+            except Exception:
+                continue
+    finally:
+        await page.close()
 
     return results

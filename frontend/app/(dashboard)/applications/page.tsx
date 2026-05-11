@@ -63,10 +63,10 @@ export default function ApplicationsPage() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">Applications</h1>
+        <h1 className="text-2xl font-bold text-foreground">Applications</h1>
         <div className="flex items-center gap-3 w-full sm:w-auto">
           <div className="relative flex-1 sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/70" />
             <Input
               placeholder="Search by company or title..."
               className="pl-9"
@@ -102,7 +102,7 @@ export default function ApplicationsPage() {
             return (
               <KanbanColumn key={col.key} title={col.label} count={apps.length} variant={col.variant}>
                 {apps.length === 0 ? (
-                  <div className="p-4 text-center text-sm text-gray-400 bg-gray-50 rounded-lg">
+                  <div className="p-4 text-center text-sm text-muted-foreground/70 bg-muted rounded-lg">
                     No {col.label.toLowerCase()} applications
                   </div>
                 ) : (
@@ -130,8 +130,8 @@ export default function ApplicationsPage() {
         /* List view for filtered */
         <div className="grid gap-3">
           {filteredApps.length === 0 ? (
-            <div className="text-center py-16 text-gray-500">
-              <Briefcase className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <div className="text-center py-16 text-muted-foreground">
+              <Briefcase className="w-12 h-12 text-muted-foreground/70 mx-auto mb-3" />
               <p className="font-medium">No applications found</p>
               <p className="text-sm mt-1">Try adjusting your filters</p>
             </div>

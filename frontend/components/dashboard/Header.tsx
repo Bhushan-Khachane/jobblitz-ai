@@ -19,37 +19,37 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
     : "U";
 
   return (
-    <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-lg border-b border-gray-200 px-6 py-3">
+    <header className="sticky top-0 z-30 bg-card/80 backdrop-blur-lg border-b border-border px-6 py-3">
       <div className="flex items-center justify-between">
         {/* Left: mobile menu + search */}
         <div className="flex items-center gap-3">
-          <button onClick={onMenuClick} className="lg:hidden p-2 text-gray-500 hover:text-gray-700">
+          <button onClick={onMenuClick} className="lg:hidden p-2 text-muted-foreground hover:text-foreground">
             <Menu className="w-5 h-5" />
           </button>
-          <div className="hidden sm:flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 w-64">
-            <Search className="w-4 h-4 text-gray-400" />
+          <div className="hidden sm:flex items-center gap-2 bg-muted rounded-lg px-3 py-2 w-64">
+            <Search className="w-4 h-4 text-muted-foreground/70" />
             <input
               type="text"
               placeholder="Search..."
-              className="bg-transparent text-sm outline-none flex-1 text-gray-700 placeholder:text-gray-400"
+              className="bg-transparent text-sm outline-none flex-1 text-foreground placeholder:text-muted-foreground/70"
             />
           </div>
         </div>
 
         {/* Right: notifications + avatar */}
         <div className="flex items-center gap-4">
-          <button className="relative p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-lg">
+          <button className="relative p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg">
             <Bell className="w-5 h-5" />
             <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
           </button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 hover:bg-gray-50 rounded-lg px-2 py-1.5">
+              <button className="flex items-center gap-2 hover:bg-muted rounded-lg px-2 py-1.5">
                 <Avatar className="h-8 w-8">
                   <AvatarFallback className="text-xs">{initials}</AvatarFallback>
                 </Avatar>
-                <span className="hidden sm:block text-sm font-medium text-gray-700">
+                <span className="hidden sm:block text-sm font-medium text-foreground">
                   {user?.full_name || "User"}
                 </span>
               </button>

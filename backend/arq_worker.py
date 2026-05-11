@@ -12,14 +12,21 @@ from app.config import settings
 
 async def startup(ctx: dict) -> None:
     """Initialize resources on worker startup."""
-    # Browser pool will be initialized in Phase 3
+    from app.services.browser_pool import browser_pool
+    from app.services.scraper_browser import scraper_browser
+    await browser_pool.initialize()
+    await scraper_browser.initialize()
+    ctx["browser_pool"] = browser_pool
+    ctx["scraper_browser"] = scraper_browser
     ctx["started"] = True
 
 
 async def shutdown(ctx: dict) -> None:
     """Clean up resources on worker shutdown."""
-    # Browser pool shutdown will be added in Phase 3
-    pass
+    from app.services.browser_pool import browser_pool
+    from app.services.scraper_browser import scraper_browser
+    await browser_pool.shutdown()
+    await scraper_browser.shutdown()
 
 
 # Import task functions

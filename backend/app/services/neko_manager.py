@@ -11,6 +11,8 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 
+import httpx
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,7 @@ class NekoSession:
     user_id: str
     platform: str
     stream_url: str
+    cdp_url: str
     token: str
     created_at: datetime
     expires_at: datetime
@@ -34,6 +37,12 @@ class NekoManager:
     Users log into LinkedIn/Naukri through a streamed browser session.
     JobBlitz never receives their password — only session cookies are captured.
     """
+
+    # URLs that indicate successful login per platform
+    PLATFORM_INDICATORS = {
+        "linkedin": ["linkedin.com/feed", "linkedin.com/in/", "linkedin.com/messaging"],
+        "naukri": ["naukri.com/mnjuser", "naukri.com/homepage", "naukri.com/profile", "naukri.com/mnaukri"],
+    }
 
     def __init__(self):
         self._client = None
@@ -49,7 +58,7 @@ class NekoManager:
         """Create a Neko container for a user to log into a platform.
 
         The container auto-destructs after 10 minutes.
-        Returns a NekoSession with the iframe URL for the frontend.
+        Returns a NekoSession with the iframe URL and CDP URL.
         """
         client = self._get_client()
         token = secrets.token_urlsafe(32)
@@ -64,7 +73,10 @@ class NekoManager:
                     "NEKO_PASSWORD": token,
                     "NEKO_ADMIN_PASSWORD": token + "-admin",
                 },
-                ports={"8080/tcp": None},
+                ports={
+                    "8080/tcp": None,   # Web UI / stream
+                    "9222/tcp": None,   # Chrome DevTools Protocol
+                },
                 labels={
                     "jb.user": user_id,
                     "jb.platform": platform,
@@ -72,19 +84,29 @@ class NekoManager:
                 },
             )
             container.reload()
+
+            # Get port bindings
             port_bindings = container.ports.get("8080/tcp")
+            cdp_bindings = container.ports.get("9222/tcp")
+
+            host = getattr(settings, "LOGIN_HOST", "localhost")
+            stream_url = ""
+            cdp_url = ""
+
             if port_bindings:
                 port = port_bindings[0]["HostPort"]
-                host = settings.LOGIN_HOST if hasattr(settings, "LOGIN_HOST") else "localhost"
                 stream_url = f"http://{host}:{port}"
-            else:
-                stream_url = ""
+
+            if cdp_bindings:
+                cdp_port = cdp_bindings[0]["HostPort"]
+                cdp_url = f"http://{host}:{cdp_port}"
 
             return NekoSession(
                 container_id=container.id,
                 user_id=user_id,
                 platform=platform,
                 stream_url=stream_url,
+                cdp_url=cdp_url,
                 token=token,
                 created_at=datetime.now(timezone.utc),
                 expires_at=expires_at,
@@ -111,15 +133,30 @@ class NekoManager:
                 if datetime.now(timezone.utc) > expires_at.replace(tzinfo=timezone.utc):
                     return "expired"
 
-            # Check if the browser has navigated to a logged-in page
-            # This is platform-specific and will be expanded
-            platform_indicators = {
-                "linkedin": ["linkedin.com/feed", "linkedin.com/in/", "linkedin.com/messaging"],
-                "naukri": ["naukri.com/mnaukri", "naukri.com/homepage", "naukri.com/profile"],
-            }
+            # Get CDP port from container
+            container.reload()
+            cdp_bindings = container.ports.get("9222/tcp")
+            if not cdp_bindings:
+                return "pending"
 
-            indicators = platform_indicators.get(platform, [])
-            # For now, return pending — CDP integration will be added
+            cdp_port = cdp_bindings[0]["HostPort"]
+            host = getattr(settings, "LOGIN_HOST", "localhost")
+
+            # Query CDP for current browser pages
+            async with httpx.AsyncClient(timeout=5) as http:
+                try:
+                    resp = await http.get(f"http://{host}:{cdp_port}/json")
+                    if resp.status_code == 200:
+                        pages = resp.json()
+                        if pages:
+                            current_url = pages[0].get("url", "")
+                            indicators = self.PLATFORM_INDICATORS.get(platform, [])
+                            for indicator in indicators:
+                                if indicator in current_url:
+                                    return "success"
+                except (httpx.ConnectError, httpx.TimeoutException):
+                    pass
+
             return "pending"
 
         except Exception as e:
@@ -129,10 +166,11 @@ class NekoManager:
     async def extract_and_store_cookies(self, container_id: str, user_id: str, platform: str) -> None:
         """Extract cookies from the browser session and store them encrypted.
 
-        Uses CDP (Chrome DevTools Protocol) to extract all cookies from
-        the browser session. Cookies are encrypted with Fernet and stored
-        in the database. The container is destroyed after extraction.
+        Connects to the container's browser via Playwright CDP, extracts all
+        cookies, encrypts with Fernet, and stores in the Credential table.
+        The container is destroyed after extraction.
         """
+        from playwright.async_api import async_playwright
         from app.utils.encryption import encrypt
         from app.database import engine
         from sqlalchemy import select
@@ -141,16 +179,50 @@ class NekoManager:
 
         _async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-        # Extract cookies via CDP (placeholder — will use Playwright CDP)
+        # Get CDP port from container
+        client = self._get_client()
+        container = client.containers.get(container_id)
+        container.reload()
+        cdp_bindings = container.ports.get("9222/tcp")
+
         cookies_data: list[dict] = []
 
+        if cdp_bindings:
+            cdp_port = cdp_bindings[0]["HostPort"]
+            host = getattr(settings, "LOGIN_HOST", "localhost")
+            cdp_endpoint = f"http://{host}:{cdp_port}"
+
+            pw = await async_playwright().start()
+            try:
+                browser = await pw.chromium.connect_over_cdp(cdp_endpoint)
+                # Get all contexts and extract cookies
+                for ctx in browser.contexts:
+                    cookies = await ctx.cookies()
+                    cookies_data.extend([
+                        {
+                            "name": c["name"],
+                            "value": c["value"],
+                            "domain": c["domain"],
+                            "path": c["path"],
+                            "expires": c.get("expires", -1),
+                        }
+                        for c in cookies
+                    ])
+                await browser.close()
+            except Exception as e:
+                logger.warning(f"CDP cookie extraction failed: {e}")
+            finally:
+                await pw.stop()
+
+        if not cookies_data:
+            logger.warning(f"No cookies extracted from container {container_id[:12]}")
+
+        # Store encrypted cookies
         try:
-            # CDP cookie extraction will be implemented with Playwright
-            # For now, we store an empty cookie list as a placeholder
-            encrypted_cookies = encrypt(str(cookies_data))
+            import json
+            encrypted_cookies = encrypt(json.dumps(cookies_data))
 
             async with _async_session() as db:
-                # Update or create credential record
                 result = await db.execute(
                     select(Credential).where(
                         Credential.user_id == user_id,

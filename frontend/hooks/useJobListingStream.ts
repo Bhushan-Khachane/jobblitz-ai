@@ -28,6 +28,30 @@ export function useJobListingStream(userId: string) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!userId) return;
+
+    // Initial fetch
+    async function fetchInitial() {
+      try {
+        const res = await fetch("/api/v1/job-listings/", {
+          headers: {
+            Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setListings(data.items || data.listings || data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch initial listings:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchInitial();
+
+    // Real-time subscription
     const channel = supabase
       .channel("job_listings")
       .on(

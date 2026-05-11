@@ -9,12 +9,17 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.database import engine
 from app.dependencies import get_current_user
-from app.models import User
+from app.models import LoginSession, User
 from app.services.neko_manager import neko_manager
 
 router = APIRouter(prefix="/login-sessions", tags=["login"])
+
+_async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 @router.post("/")
@@ -35,6 +40,20 @@ async def create_session(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
 
+    # Persist session to database
+    async with _async_session() as db:
+        login_session = LoginSession(
+            user_id=user.id,
+            platform=platform,
+            container_id=session.container_id,
+            iframe_url=session.stream_url,
+            token=session.token,
+            status="active",
+            expires_at=session.expires_at,
+        )
+        db.add(login_session)
+        await db.commit()
+
     return {
         "stream_url": session.stream_url,
         "token": session.token,
@@ -50,8 +69,35 @@ async def get_session_status(
     user: User = Depends(get_current_user),
 ):
     """Get the status of an active login session for a platform."""
-    # In a full implementation, we'd look up the active session from DB
-    raise HTTPException(status_code=404, detail="No active session found")
+    async with _async_session() as db:
+        result = await db.execute(
+            select(LoginSession).where(
+                LoginSession.user_id == user.id,
+                LoginSession.platform == platform,
+                LoginSession.status.in_(["creating", "active"]),
+            ).order_by(LoginSession.created_at.desc())
+        )
+        session = result.scalar_one_or_none()
+        if not session:
+            raise HTTPException(status_code=404, detail="No active session found")
+
+        # Check actual login status via Neko CDP
+        status = await neko_manager.check_login_status(session.container_id, platform)
+
+        if status == "success":
+            session.status = "cookies_saved"
+        elif status == "expired":
+            session.status = "expired"
+
+        await db.commit()
+
+        return {
+            "container_id": session.container_id,
+            "stream_url": session.iframe_url,
+            "token": session.token,
+            "status": session.status,
+            "expires_at": session.expires_at.isoformat(),
+        }
 
 
 @router.delete("/{platform}")
@@ -67,6 +113,19 @@ async def destroy_session(
         # Still try to destroy the container even if cookie extraction fails
         await neko_manager.destroy_session(container_id)
         raise HTTPException(status_code=500, detail=f"Failed to save cookies: {str(e)}")
+
+    # Mark session as destroyed in DB
+    async with _async_session() as db:
+        result = await db.execute(
+            select(LoginSession).where(
+                LoginSession.container_id == container_id,
+                LoginSession.user_id == user.id,
+            )
+        )
+        session = result.scalar_one_or_none()
+        if session:
+            session.status = "cookies_saved"
+            await db.commit()
 
     return {"message": "Session destroyed and cookies saved", "platform": platform}
 

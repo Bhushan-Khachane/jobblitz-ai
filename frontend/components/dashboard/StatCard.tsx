@@ -19,22 +19,22 @@ export default function StatCard({
   change,
   changeType = "neutral",
   icon: Icon,
-  iconColor = "bg-indigo-50 text-indigo-600",
+  iconColor = "bg-primary-500/10 text-primary-500",
 }: StatCardProps) {
   return (
     <Card className="hover:shadow-md transition-shadow">
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-500">{title}</p>
-            <p className="text-3xl font-bold text-gray-900 mt-1">{value}</p>
+            <p className="text-sm font-medium text-muted-foreground">{title}</p>
+            <p className="text-3xl font-bold text-foreground mt-1">{value}</p>
             {change && (
               <p
                 className={cn(
                   "text-xs font-medium mt-1",
                   changeType === "up" && "text-green-600",
                   changeType === "down" && "text-red-600",
-                  changeType === "neutral" && "text-gray-500"
+                  changeType === "neutral" && "text-muted-foreground"
                 )}
               >
                 {change}

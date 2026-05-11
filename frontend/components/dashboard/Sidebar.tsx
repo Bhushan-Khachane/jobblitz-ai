@@ -43,17 +43,17 @@ export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed top-0 left-0 z-50 h-full bg-white border-r border-gray-200 transition-all duration-300 flex flex-col",
+          "fixed top-0 left-0 z-50 h-full bg-card border-r border-border transition-all duration-300 flex flex-col",
           collapsed ? "w-[72px]" : "w-64",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
         {/* Logo */}
-        <div className="flex items-center gap-2 px-5 py-5 border-b border-gray-100">
+        <div className="flex items-center gap-2 px-5 py-5 border-b border-border">
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0">
             <Zap className="w-5 h-5 text-white" />
           </div>
-          {!collapsed && <span className="text-lg font-bold text-gray-900">JobBlitz</span>}
+          {!collapsed && <span className="text-lg font-bold text-foreground">JobBlitz</span>}
         </div>
 
         {/* Nav */}
@@ -68,11 +68,11 @@ export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                   active
-                    ? "bg-indigo-50 text-indigo-700"
-                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                    ? "bg-primary-500/10 text-primary-500"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >
-                <item.icon className={cn("w-5 h-5 shrink-0", active ? "text-indigo-600" : "text-gray-400")} />
+                <item.icon className={cn("w-5 h-5 shrink-0", active ? "text-primary-500" : "text-muted-foreground/70")} />
                 {!collapsed && <span>{item.label}</span>}
               </Link>
             );
@@ -82,7 +82,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose
         {/* Collapse toggle (desktop) */}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="hidden lg:flex items-center justify-center p-3 border-t border-gray-100 text-gray-400 hover:text-gray-600"
+          className="hidden lg:flex items-center justify-center p-3 border-t border-border text-muted-foreground/70 hover:text-muted-foreground"
         >
           {collapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
         </button>

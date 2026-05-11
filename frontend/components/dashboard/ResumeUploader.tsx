@@ -45,30 +45,30 @@ export default function ResumeUploader({ onUpload, currentFile }: ResumeUploader
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
         className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
-          dragging ? "border-indigo-500 bg-indigo-50" : "border-gray-300 hover:border-gray-400"
+          dragging ? "border-indigo-500 bg-primary-500/10" : "border-gray-300 hover:border-gray-400"
         }`}
       >
-        <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-        <p className="text-sm text-gray-600 mb-2">
+        <Upload className="w-10 h-10 text-muted-foreground/70 mx-auto mb-3" />
+        <p className="text-sm text-muted-foreground mb-2">
           Drag & drop your resume here, or
         </p>
         <label className="inline-block">
           <input type="file" accept=".pdf" className="hidden" onChange={handleSelect} />
-          <span className="text-sm font-medium text-indigo-600 cursor-pointer hover:underline">
+          <span className="text-sm font-medium text-primary-500 cursor-pointer hover:underline">
             browse files
           </span>
         </label>
-        <p className="text-xs text-gray-400 mt-2">PDF only, max 10MB</p>
+        <p className="text-xs text-muted-foreground/70 mt-2">PDF only, max 10MB</p>
       </div>
 
       {(file || currentFile) && (
-        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-          <FileText className="w-5 h-5 text-indigo-600" />
-          <span className="text-sm text-gray-700 flex-1 truncate">
+        <div className="flex items-center gap-3 p-3 bg-background rounded-lg">
+          <FileText className="w-5 h-5 text-primary-500" />
+          <span className="text-sm text-foreground flex-1 truncate">
             {file?.name || currentFile}
           </span>
           {file && (
-            <button onClick={() => setFile(null)} className="text-gray-400 hover:text-gray-600">
+            <button onClick={() => setFile(null)} className="text-muted-foreground/70 hover:text-muted-foreground">
               <X className="w-4 h-4" />
             </button>
           )}

@@ -68,8 +68,8 @@ export default function ApprovalQueuePage() {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <XCircle className="w-12 h-12 text-red-400 mb-3" />
-        <p className="text-gray-600 font-medium">Failed to load approval queue</p>
-        <p className="text-sm text-gray-400 mt-1">{error}</p>
+        <p className="text-muted-foreground font-medium">Failed to load approval queue</p>
+        <p className="text-sm text-muted-foreground/70 mt-1">{error}</p>
         <Button variant="outline" className="mt-4" onClick={refetch}>
           Retry
         </Button>
@@ -81,8 +81,8 @@ export default function ApprovalQueuePage() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Approval Queue</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-2xl font-bold text-foreground">Approval Queue</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             Review and approve job applications before they are submitted
           </p>
         </div>
@@ -94,8 +94,8 @@ export default function ApprovalQueuePage() {
       {queue.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20">
           <CheckCircle className="w-16 h-16 text-green-300 mb-4" />
-          <p className="text-lg font-medium text-gray-600">All caught up!</p>
-          <p className="text-sm text-gray-400 mt-1">
+          <p className="text-lg font-medium text-muted-foreground">All caught up!</p>
+          <p className="text-sm text-muted-foreground/70 mt-1">
             No applications are waiting for your approval
           </p>
         </div>
@@ -119,7 +119,7 @@ export default function ApprovalQueuePage() {
                         {/* Job info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-semibold text-gray-900 truncate">
+                            <h3 className="font-semibold text-foreground truncate">
                               {listing?.title || "Unknown Position"}
                             </h3>
                             <Badge
@@ -129,7 +129,7 @@ export default function ApprovalQueuePage() {
                               {listing?.platform || "—"}
                             </Badge>
                           </div>
-                          <div className="flex items-center gap-3 text-sm text-gray-500">
+                          <div className="flex items-center gap-3 text-sm text-muted-foreground">
                             {listing?.company && (
                               <span className="flex items-center gap-1">
                                 <Building2 className="w-3.5 h-3.5" />
@@ -147,7 +147,7 @@ export default function ApprovalQueuePage() {
                           {/* Match score */}
                           {listing?.match_score != null && (
                             <div className="mt-2 flex items-center gap-2">
-                              <div className="flex-1 max-w-32 h-2 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="flex-1 max-w-32 h-2 bg-muted rounded-full overflow-hidden">
                                 <div
                                   className={`h-full rounded-full ${
                                     listing.match_score >= 0.7
@@ -159,7 +159,7 @@ export default function ApprovalQueuePage() {
                                   style={{ width: `${Math.round(listing.match_score * 100)}%` }}
                                 />
                               </div>
-                              <span className="text-xs text-gray-500 font-medium">
+                              <span className="text-xs text-muted-foreground font-medium">
                                 {Math.round(listing.match_score * 100)}% match
                               </span>
                             </div>
@@ -167,11 +167,11 @@ export default function ApprovalQueuePage() {
 
                           {/* Salary */}
                           {listing?.salary && (
-                            <p className="text-xs text-gray-400 mt-1">{listing.salary}</p>
+                            <p className="text-xs text-muted-foreground/70 mt-1">{listing.salary}</p>
                           )}
 
                           {/* Applied date */}
-                          <div className="flex items-center gap-1.5 text-xs text-gray-400 mt-2">
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70 mt-2">
                             <Clock className="w-3 h-3" />
                             <span>Queued {formatDate(app.created_at)}</span>
                           </div>
@@ -195,7 +195,7 @@ export default function ApprovalQueuePage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="text-red-600 border-red-200 hover:bg-red-50"
+                            className="text-red-400 border-red-500/20 hover:bg-red-500/10"
                             disabled={isActing}
                             onClick={() => handleReject(app.id)}
                           >
@@ -211,7 +211,7 @@ export default function ApprovalQueuePage() {
                               href={listing.apply_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-xs text-indigo-600 hover:text-indigo-800 text-center"
+                              className="text-xs text-primary-500 hover:text-primary-500 text-center"
                             >
                               <ExternalLink className="w-3 h-3 inline mr-0.5" />
                               View job

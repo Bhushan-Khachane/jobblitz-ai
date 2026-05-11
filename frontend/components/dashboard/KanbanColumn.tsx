@@ -13,17 +13,17 @@ interface KanbanColumnProps {
 }
 
 const variantStyles = {
-  default: "bg-indigo-50 text-indigo-700",
-  success: "bg-green-50 text-green-700",
-  warning: "bg-yellow-50 text-yellow-700",
-  destructive: "bg-red-50 text-red-700",
+  default: "bg-primary-500/10 text-primary-500",
+  success: "bg-green-500/10 text-green-400",
+  warning: "bg-amber-500/10 text-amber-400",
+  destructive: "bg-red-500/10 text-red-400",
 };
 
 export default function KanbanColumn({ title, count, variant, children }: KanbanColumnProps) {
   return (
     <div className="flex-1 min-w-[280px]">
       <div className="flex items-center gap-2 mb-4">
-        <h3 className="font-semibold text-gray-900">{title}</h3>
+        <h3 className="font-semibold text-foreground">{title}</h3>
         <Badge variant="secondary" className={cn(variantStyles[variant])}>
           {count}
         </Badge>

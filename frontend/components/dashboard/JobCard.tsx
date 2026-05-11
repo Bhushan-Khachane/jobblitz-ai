@@ -16,20 +16,20 @@ interface JobCardProps {
 }
 
 const statusColors: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-700",
-  submitted: "bg-blue-100 text-blue-700",
-  applied: "bg-blue-100 text-blue-700",
-  interview: "bg-green-100 text-green-700",
-  rejected: "bg-red-100 text-red-700",
-  failed: "bg-red-100 text-red-700",
-  accepted: "bg-emerald-100 text-emerald-700",
-  skipped: "bg-gray-100 text-gray-600",
+  pending: "bg-amber-500/15 text-amber-400",
+  submitted: "bg-blue-500/15 text-blue-400",
+  applied: "bg-blue-500/15 text-blue-400",
+  interview: "bg-green-500/15 text-green-400",
+  rejected: "bg-red-500/15 text-red-400",
+  failed: "bg-red-500/15 text-red-400",
+  accepted: "bg-green-500/15 text-green-400",
+  skipped: "bg-muted text-muted-foreground",
 };
 
 const approvalColors: Record<string, string> = {
-  pending_approval: "bg-orange-100 text-orange-700",
-  approved: "bg-green-100 text-green-700",
-  rejected: "bg-red-100 text-red-700",
+  pending_approval: "bg-orange-500/15 text-orange-400",
+  approved: "bg-green-500/15 text-green-400",
+  rejected: "bg-red-500/15 text-red-400",
 };
 
 export default function JobCard({ title, company, location, platform, appliedDate, status, approvalStatus, onClick }: JobCardProps) {
@@ -37,34 +37,34 @@ export default function JobCard({ title, company, location, platform, appliedDat
     <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={onClick}>
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-2">
-          <h4 className="font-semibold text-gray-900 text-sm leading-tight">{title}</h4>
+          <h4 className="font-semibold text-foreground text-sm leading-tight">{title}</h4>
           <Badge variant="outline" className="text-[10px] shrink-0 ml-2">
             {platform}
           </Badge>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
           <Building2 className="w-3 h-3" />
           <span>{company}</span>
         </div>
         {location && (
-          <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70 mb-2">
             <MapPin className="w-3 h-3" />
             <span>{location}</span>
           </div>
         )}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
-            <Badge className={statusColors[status] || "bg-gray-100 text-gray-700"} variant="secondary">
+            <Badge className={statusColors[status] || "bg-muted text-muted-foreground"} variant="secondary">
               {status}
             </Badge>
             {approvalStatus && (
-              <Badge className={approvalColors[approvalStatus] || "bg-gray-100 text-gray-700"} variant="secondary">
+              <Badge className={approvalColors[approvalStatus] || "bg-muted text-muted-foreground"} variant="secondary">
                 {approvalStatus === "pending_approval" ? "awaiting approval" : approvalStatus}
               </Badge>
             )}
           </div>
           {appliedDate && (
-            <span className="text-[10px] text-gray-400">
+            <span className="text-[10px] text-muted-foreground/70">
               {new Date(appliedDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
             </span>
           )}

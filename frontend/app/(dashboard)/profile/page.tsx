@@ -204,10 +204,10 @@ export default function ProfilePage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-3xl space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">My Profile</h1>
+      <h1 className="text-2xl font-bold text-foreground">My Profile</h1>
 
       {success && (
-        <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">{success}</div>
+        <div className="p-3 bg-green-500/10 border border-green-200 rounded-lg text-sm text-green-700">{success}</div>
       )}
 
       <form onSubmit={handleSubmit(onSubmit)}>
@@ -242,7 +242,7 @@ export default function ProfilePage() {
               <textarea
                 id="summary"
                 rows={4}
-                className="flex w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="flex w-full rounded-md border border-gray-300 bg-card px-3 py-2 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 placeholder="Brief overview of your experience and goals..."
                 {...register("summary")}
               />
@@ -268,14 +268,14 @@ export default function ProfilePage() {
             </div>
             <div className="flex flex-wrap gap-2">
               {skills.map((s) => (
-                <span key={s} className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full text-sm">
+                <span key={s} className="inline-flex items-center gap-1 px-3 py-1 bg-primary-500/10 text-primary-500 rounded-full text-sm">
                   {s}
                   <button type="button" onClick={() => removeSkill(s)} className="hover:text-red-500">
                     <X className="w-3 h-3" />
                   </button>
                 </span>
               ))}
-              {skills.length === 0 && <p className="text-sm text-gray-400">No skills added yet</p>}
+              {skills.length === 0 && <p className="text-sm text-muted-foreground/70">No skills added yet</p>}
             </div>
           </CardContent>
         </Card>
@@ -317,14 +317,14 @@ export default function ProfilePage() {
           {resumes.length > 0 && (
             <div className="space-y-2">
               {resumes.map((r: any) => (
-                <div key={r.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div key={r.id} className="flex items-center justify-between p-3 bg-background rounded-lg">
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{r.title}</p>
-                    <p className="text-xs text-gray-500">{new Date(r.created_at).toLocaleDateString("en-IN")}</p>
+                    <p className="text-sm font-medium text-foreground">{r.title}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString("en-IN")}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {r.is_default && (
-                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Default</span>
+                      <span className="text-xs bg-green-500/15 text-green-400 px-2 py-0.5 rounded-full">Default</span>
                     )}
                     {!r.is_default && (
                       <Button variant="ghost" size="sm" onClick={() => toggleDefault(r.id)}>
@@ -346,10 +346,10 @@ export default function ProfilePage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-indigo-600" />
+            <Shield className="w-5 h-5 text-primary-500" />
             Linked Accounts
           </CardTitle>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             Connect your LinkedIn and Naukri accounts to enable automatic job applications.
           </p>
         </CardHeader>
@@ -359,14 +359,14 @@ export default function ProfilePage() {
           {credentials.length > 0 && (
             <div className="space-y-3">
               {credentials.map((cred: any) => (
-                <div key={cred.id} className="flex items-center justify-between p-4 bg-green-50 rounded-lg border border-green-200">
+                <div key={cred.id} className="flex items-center justify-between p-4 bg-green-500/10 rounded-lg border border-green-200">
                   <div className="flex items-center gap-3">
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${platformColor(cred.platform)}`}>
                       {platformInitial(cred.platform)}
                     </div>
                     <div>
-                      <p className="font-medium text-gray-900 capitalize">{platformLabel(cred.platform)}</p>
-                      <p className="text-sm text-gray-500">{cred.username}</p>
+                      <p className="font-medium text-foreground capitalize">{platformLabel(cred.platform)}</p>
+                      <p className="text-sm text-muted-foreground">{cred.username}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -375,7 +375,7 @@ export default function ProfilePage() {
                         checked={cred.is_active}
                         onCheckedChange={() => handleToggleCredential(cred)}
                       />
-                      <span className={`text-xs font-medium ${cred.is_active ? "text-green-600" : "text-gray-400"}`}>
+                      <span className={`text-xs font-medium ${cred.is_active ? "text-green-600" : "text-muted-foreground/70"}`}>
                         {cred.is_active ? "Active" : "Paused"}
                       </span>
                     </div>
@@ -394,7 +394,7 @@ export default function ProfilePage() {
           )}
 
           {isLinked("linkedin") && isLinked("naukri") && (
-            <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex items-center gap-3">
+            <div className="p-4 bg-green-500/10 border border-green-200 rounded-lg text-sm text-green-700 flex items-center gap-3">
               <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
               <div>
                 <p className="font-medium">All accounts connected</p>
@@ -404,21 +404,21 @@ export default function ProfilePage() {
           )}
 
           {/* Method 1: Browser Extension */}
-          <div className="border border-gray-200 rounded-xl overflow-hidden">
-            <div className="p-4 flex items-center justify-between bg-gray-50/50">
+          <div className="border border-border rounded-xl overflow-hidden">
+            <div className="p-4 flex items-center justify-between bg-muted/50">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
-                  <Puzzle className="w-5 h-5 text-indigo-600" />
+                <div className="w-10 h-10 bg-primary-500/10 rounded-lg flex items-center justify-center">
+                  <Puzzle className="w-5 h-5 text-primary-500" />
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-900">Browser Extension</p>
-                  <p className="text-xs text-gray-500">Secure, reliable, and recommended</p>
+                  <p className="font-semibold text-foreground">Browser Extension</p>
+                  <p className="text-xs text-muted-foreground">Secure, reliable, and recommended</p>
                 </div>
               </div>
-              <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Recommended</Badge>
+              <Badge className="bg-green-500/15 text-green-400 hover:bg-green-500/15">Recommended</Badge>
             </div>
             <div className="p-4">
-              <p className="text-sm text-gray-600 mb-3">
+              <p className="text-sm text-muted-foreground mb-3">
                 Install the JobBlitz Chrome extension to connect your accounts securely. Your credentials never leave your browser.
               </p>
               <Button variant="outline" size="sm" disabled>
@@ -429,37 +429,37 @@ export default function ProfilePage() {
           </div>
 
           {/* Method 2: Session Cookie */}
-          <div className="border border-gray-200 rounded-xl overflow-hidden">
+          <div className="border border-border rounded-xl overflow-hidden">
             <button
               type="button"
               onClick={() => setActiveMethod(activeMethod === "cookie" ? null : "cookie")}
-              className="w-full p-4 flex items-center justify-between bg-gray-50/50 hover:bg-gray-50 transition-colors text-left"
+              className="w-full p-4 flex items-center justify-between bg-muted/50 hover:bg-muted transition-colors text-left"
             >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+                <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center">
                   <Shield className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-900">Session Cookie</p>
-                  <p className="text-xs text-gray-500">Fast, no password needed</p>
+                  <p className="font-semibold text-foreground">Session Cookie</p>
+                  <p className="text-xs text-muted-foreground">Fast, no password needed</p>
                 </div>
               </div>
               {activeMethod === "cookie" ? (
-                <ChevronUp className="w-4 h-4 text-gray-400" />
+                <ChevronUp className="w-4 h-4 text-muted-foreground/70" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-gray-400" />
+                <ChevronDown className="w-4 h-4 text-muted-foreground/70" />
               )}
             </button>
             {activeMethod === "cookie" && (
               <div className="p-4 space-y-4">
                 {credError && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{credError}</div>
+                  <div className="p-3 bg-red-500/10 border border-red-200 rounded-lg text-sm text-red-600">{credError}</div>
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label>Platform</Label>
                     <select
-                      className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="mt-1 w-full rounded-md border border-gray-300 bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       value={credForm.platform}
                       onChange={(e) => setCredForm({ ...credForm, platform: e.target.value })}
                     >
@@ -485,17 +485,17 @@ export default function ProfilePage() {
                     placeholder={`Paste your ${platformLabel(credForm.platform)} session cookie here...`}
                     value={credForm.session_cookie}
                     onChange={(e) => setCredForm({ ...credForm, session_cookie: e.target.value })}
-                    className="mt-1 flex w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="mt-1 flex w-full rounded-md border border-gray-300 bg-card px-3 py-2 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
-                <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700 space-y-1">
+                <div className="p-3 bg-blue-500/10 border border-blue-100 rounded-lg text-xs text-blue-700 space-y-1">
                   <p className="font-medium">How to get your session cookie:</p>
                   <ol className="list-decimal list-inside space-y-0.5">
                     <li>Open {platformLabel(credForm.platform)} in your browser and log in.</li>
                     <li>Open DevTools (F12) → Application → Cookies.</li>
                     <li>
                       Copy the value of{" "}
-                      <code className="bg-blue-100 px-1 rounded">{credForm.platform === "linkedin" ? "li_at" : "JSESSIONID"}</code>{" "}
+                      <code className="bg-blue-500/15 px-1 rounded">{credForm.platform === "linkedin" ? "li_at" : "JSESSIONID"}</code>{" "}
                       and paste it above.
                     </li>
                   </ol>
@@ -512,40 +512,40 @@ export default function ProfilePage() {
           </div>
 
           {/* Method 3: Password */}
-          <div className="border border-gray-200 rounded-xl overflow-hidden">
+          <div className="border border-border rounded-xl overflow-hidden">
             <button
               type="button"
               onClick={() => setActiveMethod(activeMethod === "password" ? null : "password")}
-              className="w-full p-4 flex items-center justify-between bg-gray-50/50 hover:bg-gray-50 transition-colors text-left"
+              className="w-full p-4 flex items-center justify-between bg-muted/50 hover:bg-muted transition-colors text-left"
             >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center">
+                <div className="w-10 h-10 bg-red-500/10 rounded-lg flex items-center justify-center">
                   <Shield className="w-5 h-5 text-red-500" />
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-900">Password</p>
-                  <p className="text-xs text-gray-500">Last resort, higher ban risk</p>
+                  <p className="font-semibold text-foreground">Password</p>
+                  <p className="text-xs text-muted-foreground">Last resort, higher ban risk</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Badge className="bg-red-100 text-red-700 hover:bg-red-100">Higher Ban Risk</Badge>
+                <Badge className="bg-red-500/15 text-red-400 hover:bg-red-500/15">Higher Ban Risk</Badge>
                 {activeMethod === "password" ? (
-                  <ChevronUp className="w-4 h-4 text-gray-400" />
+                  <ChevronUp className="w-4 h-4 text-muted-foreground/70" />
                 ) : (
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                  <ChevronDown className="w-4 h-4 text-muted-foreground/70" />
                 )}
               </div>
             </button>
             {activeMethod === "password" && (
               <div className="p-4 space-y-4">
                 {credError && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{credError}</div>
+                  <div className="p-3 bg-red-500/10 border border-red-200 rounded-lg text-sm text-red-600">{credError}</div>
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label>Platform</Label>
                     <select
-                      className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="mt-1 w-full rounded-md border border-gray-300 bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       value={credForm.platform}
                       onChange={(e) => setCredForm({ ...credForm, platform: e.target.value })}
                     >
@@ -577,13 +577,13 @@ export default function ProfilePage() {
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/70 hover:text-muted-foreground"
                     >
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
-                <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700 flex gap-2">
+                <div className="p-3 bg-red-500/10 border border-red-100 rounded-lg text-xs text-red-400 flex gap-2">
                   <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" />
                   <span>
                     Using your password increases the chance of account restrictions. We strongly recommend using a dedicated job-search account.
@@ -603,8 +603,8 @@ export default function ProfilePage() {
           </div>
 
           {/* Security note */}
-          <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500 flex gap-2">
-            <Shield className="w-4 h-4 flex-shrink-0 mt-0.5 text-gray-400" />
+          <div className="p-3 bg-background border border-border rounded-lg text-xs text-muted-foreground flex gap-2">
+            <Shield className="w-4 h-4 flex-shrink-0 mt-0.5 text-muted-foreground/70" />
             <span>
               JobBlitz uses AES-256 encryption to store your credentials and only uses them to log in
               via secure browser automation. LinkedIn and Naukri do not offer third-party OAuth for job applications.

@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from playwright.async_api import Page, async_playwright
+from playwright.async_api import Page
 from playwright_stealth import stealth_async
 
 from app.config import settings
@@ -35,28 +35,21 @@ async def login_with_credentials(
     platform: str,
     username: str,
     encrypted_password: str,
-    user_data_dir: str | Path,
+    user_data_dir: str | Path | None = None,
 ) -> tuple[bool, str]:
-    """Log in to LinkedIn or Naukri using credentials. Returns (success, error_message)."""
-    password = decrypt(encrypted_password)
-    data_dir = Path(user_data_dir)
-    data_dir.mkdir(parents=True, exist_ok=True)
+    """Log in to LinkedIn or Naukri using credentials via browser pool. Returns (success, error_message).
 
-    async with async_playwright() as pw:
-        width = random.randint(VIEWPORT_MIN, VIEWPORT_MAX)
-        height = random.randint(800, 1080)
-        context = await pw.chromium.launch_persistent_context(
-            user_data_dir=str(data_dir),
-            headless=True,
-            viewport={"width": width, "height": height},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            ),
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+    Note: The browser pool clears cookies on release, so login sessions are
+    not persisted across calls. The Neko cloud browser flow is the preferred
+    login mechanism — this function is a legacy fallback.
+    """
+    password = decrypt(encrypted_password)
+
+    from app.services.browser_pool import browser_pool
+    ctx = await browser_pool.acquire(task_type=f"{platform}_apply")
+    try:
+        page = await ctx.new_page()
         try:
-            page = await context.new_page()
             await stealth_async(page)
 
             if platform == "linkedin":
@@ -70,7 +63,9 @@ async def login_with_credentials(
                 return False, f"Login failed for {platform}"
             return True, ""
         finally:
-            await context.close()
+            await page.close()
+    finally:
+        await browser_pool.release(ctx)
 
 
 async def _login_linkedin(page: Page, username: str, password: str) -> bool:
@@ -391,42 +386,17 @@ async def apply_to_job(
     cover_letter: str | None = None,
 ) -> tuple[bool, str | None, str | None, dict[str, str]]:
     """
-    Full application flow: open page, fill form, submit.
+    Full application flow using browser pool: open page, fill form, submit.
     Returns (success, error, screenshot_path, answers_used).
     """
-    # Use a unique profile dir per task to avoid "Firefox already running" collisions
-    ctx_dir = Path(settings.UPLOAD_DIR) / f".ctx_{user_id}_{platform}_{uuid.uuid4().hex[:8]}"
-    ctx_dir.mkdir(parents=True, exist_ok=True)
     screenshot_path: str | None = None
     answers: dict[str, str] = {}
 
-    async with async_playwright() as pw:
-        width = random.randint(VIEWPORT_MIN, VIEWPORT_MAX)
-        height = random.randint(800, 1080)
-        browser = "firefox" if platform == "naukri" else "chromium"
-        if browser == "firefox":
-            context = await pw.firefox.launch_persistent_context(
-                user_data_dir=str(ctx_dir),
-                headless=True,
-                viewport={"width": width, "height": height},
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) "
-                    "Gecko/20100101 Firefox/120.0"
-                ),
-            )
-        else:
-            context = await pw.chromium.launch_persistent_context(
-                user_data_dir=str(ctx_dir),
-                headless=True,
-                viewport={"width": width, "height": height},
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                ),
-                args=["--disable-blink-features=AutomationControlled"],
-            )
+    from app.services.browser_pool import browser_pool
+    ctx = await browser_pool.acquire(task_type=f"{platform}_apply")
+    try:
+        page = await ctx.new_page()
         try:
-            page = await context.new_page()
             # stealth_async can break Firefox pages; skip it for Naukri
             if platform != "naukri":
                 await stealth_async(page)
@@ -479,11 +449,11 @@ async def apply_to_job(
 
         except Exception as e:
             try:
-                page_obj = context.pages[0] if context.pages else None
-                if page_obj:
-                    screenshot_path = await _save_screenshot(page_obj, user_id, "exception")
+                screenshot_path = await _save_screenshot(page, user_id, "exception")
             except Exception:
                 pass
             return False, str(e), screenshot_path, answers
         finally:
-            await context.close()
+            await page.close()
+    finally:
+        await browser_pool.release(ctx)

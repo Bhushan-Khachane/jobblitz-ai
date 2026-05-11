@@ -30,9 +30,9 @@ interface JobSearch {
 }
 
 const platformColors: Record<string, string> = {
-  linkedin: "bg-blue-100 text-blue-700",
-  naukri: "bg-yellow-100 text-yellow-700",
-  both: "bg-purple-100 text-purple-700",
+  linkedin: "bg-blue-500/15 text-blue-400",
+  naukri: "bg-amber-500/15 text-amber-400",
+  both: "bg-primary-500/15 text-primary-500",
 };
 
 export default function SearchesPage() {
@@ -147,11 +147,11 @@ export default function SearchesPage() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       {!hasCredentials && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 flex items-start gap-3">
           <span className="text-amber-500 text-xl">⚠️</span>
           <div>
-            <p className="font-medium text-amber-800">Auto-apply is not active</p>
-            <p className="text-sm text-amber-700 mt-0.5">
+            <p className="font-medium text-amber-400">Auto-apply is not active</p>
+            <p className="text-sm text-amber-400 mt-0.5">
               You haven't linked your LinkedIn or Naukri account yet.{" "}
               <a href="/profile" className="underline font-medium">Add credentials</a> to enable automatic job applications.
             </p>
@@ -161,18 +161,18 @@ export default function SearchesPage() {
 
       {triggerMsg && (
         <div className={`p-3 rounded-lg text-sm border ${triggerMsg.startsWith("✓")
-          ? "bg-green-50 border-green-200 text-green-700"
-          : "bg-red-50 border-red-200 text-red-700"}`}>
+          ? "bg-green-500/10 border-green-500/20 text-green-400"
+          : "bg-red-500/10 border-red-500/20 text-red-400"}`}>
           {triggerMsg}
         </div>
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-700 text-sm">{error}</div>
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-red-400 text-sm">{error}</div>
       )}
 
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Job Searches</h1>
+        <h1 className="text-2xl font-bold text-foreground">Job Searches</h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={openCreate}>
@@ -208,9 +208,9 @@ export default function SearchesPage() {
       {searches.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center">
-            <Globe className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-lg font-medium text-gray-700">No searches yet</p>
-            <p className="text-sm text-gray-500 mt-1 mb-4">Create your first job search to start discovering opportunities.</p>
+            <Globe className="w-12 h-12 text-muted-foreground/70 mx-auto mb-4" />
+            <p className="text-lg font-medium text-foreground">No searches yet</p>
+            <p className="text-sm text-muted-foreground mt-1 mb-4">Create your first job search to start discovering opportunities.</p>
             <Button onClick={openCreate}>
               <Plus className="w-4 h-4 mr-1" /> Create Search
             </Button>
@@ -224,15 +224,15 @@ export default function SearchesPage() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
-                      <h3 className="font-semibold text-gray-900">{s.name}</h3>
-                      <Badge className={platformColors[s.platform] || "bg-gray-100 text-gray-700"} variant="secondary">
+                      <h3 className="font-semibold text-foreground">{s.name}</h3>
+                      <Badge className={platformColors[s.platform] || "bg-muted text-muted-foreground"} variant="secondary">
                         {s.platform}
                       </Badge>
                     </div>
-                    <p className="text-sm text-gray-600 mb-1">
+                    <p className="text-sm text-foreground mb-1">
                       <span className="font-medium">Keywords:</span> {s.keywords}
                     </p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       {s.location && <span>📍 {s.location}</span>}
                       {s.experience_level && <span>💼 {s.experience_level}</span>}
                       {s.remote_only && <span>🏠 Remote</span>}
@@ -243,18 +243,18 @@ export default function SearchesPage() {
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2">
                       <Switch checked={s.is_active} onCheckedChange={() => handleToggle(s)} />
-                      <span className="text-xs text-gray-500">{s.is_active ? "Active" : "Paused"}</span>
+                      <span className="text-xs text-muted-foreground">{s.is_active ? "Active" : "Paused"}</span>
                     </div>
                     <Button
                       variant="outline"
                       size="sm"
                       disabled={running === s.id || !s.is_active}
                       onClick={() => handleTrigger(s.id)}
-                      className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                      className="text-primary-500 border-primary-500/20 hover:bg-primary-500/10"
                     >
                       {running === s.id ? (
                         <span className="flex items-center gap-1">
-                          <span className="animate-spin h-3 w-3 border-2 border-indigo-600 border-t-transparent rounded-full" />
+                          <span className="animate-spin h-3 w-3 border-2 border-primary-500 border-t-transparent rounded-full" />
                           Running...
                         </span>
                       ) : (
@@ -262,7 +262,7 @@ export default function SearchesPage() {
                       )}
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => openEdit(s)}>
-                      <Pencil className="w-4 h-4 text-gray-500" />
+                      <Pencil className="w-4 h-4 text-muted-foreground" />
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => handleDelete(s.id)}>
                       <Trash2 className="w-4 h-4 text-red-400 hover:text-red-600" />

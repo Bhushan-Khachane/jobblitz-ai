@@ -11,6 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import api from "@/lib/api";
 import { formatDate } from "@/lib/utils";
+import { useApplicationStream } from "@/hooks/useApplicationStream";
+import { useSearchStream } from "@/hooks/useSearchStream";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Overview {
   total_applications: number;
@@ -19,43 +22,37 @@ interface Overview {
   success_rate: number;
 }
 
-interface Application {
-  id: string;
-  job_listing_id: string;
-  status: string;
-  approval_status: string | null;
-  applied_at: string | null;
-  created_at: string;
-}
-
 export default function DashboardPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [recent, setRecent] = useState<Application[]>([]);
-  const [activeSearchCount, setActiveSearchCount] = useState(0);
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [overviewLoading, setOverviewLoading] = useState(true);
 
+  // Realtime streams (replace one-time HTTP fetch for apps/searches)
+  const { user } = useAuth();
+  const { applications, loading: appsLoading } = useApplicationStream(user?.id || "");
+  const { searches, loading: searchesLoading } = useSearchStream(user?.id || "");
+
+  // Recent applications = latest 5 from realtime stream
+  const recent = applications.slice(0, 5);
+  const activeSearchCount = searches.filter((s) => s.is_active).length;
+
+  // Load server-computed analytics (can't derive from client-side data)
   useEffect(() => {
-    const load = async () => {
+    const loadOverview = async () => {
       try {
-        const [ovRes, appsRes, searchRes, approvalRes] = await Promise.all([
+        const [ovRes, approvalRes] = await Promise.all([
           api.get("/analytics/overview"),
-          api.get("/applications/", { params: { page: 1, page_size: 5 } }),
-          api.get("/job-searches/"),
           api.get("/applications/approval-queue").catch(() => ({ data: [] })),
         ]);
         setOverview(ovRes.data);
-        setRecent(appsRes.data.items || []);
-        const active = (searchRes.data || []).filter((s: any) => s.is_active).length;
-        setActiveSearchCount(active);
         setPendingApprovalCount(Array.isArray(approvalRes.data) ? approvalRes.data.length : 0);
       } catch (e) {
         console.error("Dashboard load error:", e);
       } finally {
-        setLoading(false);
+        setOverviewLoading(false);
       }
     };
-    load();
+    loadOverview();
   }, []);
 
   const todayCount = overview?.counts_by_status?.find(
@@ -64,6 +61,8 @@ export default function DashboardPage() {
   const interviewCount = overview?.counts_by_status?.find(
     (c) => c.status === "interview"
   )?.count || 0;
+
+  const loading = overviewLoading || appsLoading || searchesLoading;
 
   if (loading) {
     return (
@@ -81,7 +80,7 @@ export default function DashboardPage() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
         <Link href="/searches">
           <Button size="sm">
             <Plus className="w-4 h-4 mr-1" /> New Search
@@ -95,7 +94,7 @@ export default function DashboardPage() {
           title="Applications Submitted"
           value={todayCount}
           icon={Briefcase}
-          iconColor="bg-blue-50 text-blue-600"
+          iconColor="bg-blue-500/10 text-blue-400"
           change={`${overview?.total_applications || 0} total`}
           changeType="neutral"
         />
@@ -103,7 +102,7 @@ export default function DashboardPage() {
           title="Active Searches"
           value={activeSearchCount}
           icon={Search}
-          iconColor="bg-purple-50 text-purple-600"
+          iconColor="bg-primary-500/10 text-primary-500"
           change="running now"
           changeType="neutral"
         />
@@ -111,7 +110,7 @@ export default function DashboardPage() {
           title="Interviews"
           value={interviewCount}
           icon={CalendarCheck}
-          iconColor="bg-green-50 text-green-600"
+          iconColor="bg-green-500/10 text-green-400"
           change="scheduled"
           changeType="neutral"
         />
@@ -119,82 +118,82 @@ export default function DashboardPage() {
           title="Success Rate"
           value={`${overview?.success_rate || 0}%`}
           icon={TrendingUp}
-          iconColor="bg-amber-50 text-amber-600"
+          iconColor="bg-amber-500/10 text-amber-400"
           change={overview?.success_rate && overview.success_rate > 10 ? "Good progress!" : "Keep going"}
           changeType={overview?.success_rate && overview.success_rate > 10 ? "up" : "neutral"}
         />
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Link href="/searches">
           <Card className="hover:shadow-md transition-shadow cursor-pointer group">
             <CardContent className="p-5 flex items-center gap-4">
-              <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
-                <Search className="w-5 h-5 text-indigo-600" />
+              <div className="w-10 h-10 bg-primary-500/10 rounded-lg flex items-center justify-center">
+                <Search className="w-5 h-5 text-primary-500" />
               </div>
               <div className="flex-1">
-                <p className="font-medium text-gray-900">Create Job Search</p>
-                <p className="text-xs text-gray-500">Set up a new search criteria</p>
+                <p className="font-medium text-foreground">Create Job Search</p>
+                <p className="text-xs text-muted-foreground">Set up a new search criteria</p>
               </div>
-              <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-indigo-600 transition-colors" />
+              <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary-500 transition-colors" />
             </CardContent>
           </Card>
         </Link>
         <Link href="/applications">
           <Card className="hover:shadow-md transition-shadow cursor-pointer group">
             <CardContent className="p-5 flex items-center gap-4">
-              <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center">
-                <Briefcase className="w-5 h-5 text-green-600" />
+              <div className="w-10 h-10 bg-green-500/10 rounded-lg flex items-center justify-center">
+                <Briefcase className="w-5 h-5 text-green-400" />
               </div>
               <div className="flex-1">
-                <p className="font-medium text-gray-900">View Applications</p>
-                <p className="text-xs text-gray-500">Track all your applications</p>
+                <p className="font-medium text-foreground">View Applications</p>
+                <p className="text-xs text-muted-foreground">Track all your applications</p>
               </div>
-              <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-green-600 transition-colors" />
+              <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-green-400 transition-colors" />
             </CardContent>
           </Card>
         </Link>
         <Link href="/analytics">
           <Card className="hover:shadow-md transition-shadow cursor-pointer group">
             <CardContent className="p-5 flex items-center gap-4">
-              <div className="w-10 h-10 bg-amber-50 rounded-lg flex items-center justify-center">
-                <TrendingUp className="w-5 h-5 text-amber-600" />
+              <div className="w-10 h-10 bg-amber-500/10 rounded-lg flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 text-amber-400" />
               </div>
               <div className="flex-1">
-                <p className="font-medium text-gray-900">View Analytics</p>
-                <p className="text-xs text-gray-500">Insights and trends</p>
+                <p className="font-medium text-foreground">View Analytics</p>
+                <p className="text-xs text-muted-foreground">Insights and trends</p>
               </div>
-              <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-amber-600 transition-colors" />
+              <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-amber-400 transition-colors" />
             </CardContent>
           </Card>
         </Link>
         <Link href="/approval-queue">
           <Card className="hover:shadow-md transition-shadow cursor-pointer group">
             <CardContent className="p-5 flex items-center gap-4">
-              <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center">
-                <ClipboardCheck className="w-5 h-5 text-orange-600" />
+              <div className="w-10 h-10 bg-orange-500/10 rounded-lg flex items-center justify-center">
+                <ClipboardCheck className="w-5 h-5 text-orange-400" />
               </div>
               <div className="flex-1">
-                <p className="font-medium text-gray-900">Approval Queue</p>
-                <p className="text-xs text-gray-500">
+                <p className="font-medium text-foreground">Approval Queue</p>
+                <p className="text-xs text-muted-foreground">
                   {pendingApprovalCount > 0
                     ? `${pendingApprovalCount} awaiting review`
                     : "All caught up"}
                 </p>
               </div>
               {pendingApprovalCount > 0 && (
-                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-100 text-orange-700 text-xs font-bold">
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-500/20 text-orange-400 text-xs font-bold">
                   {pendingApprovalCount}
                 </span>
               )}
-              <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-orange-600 transition-colors" />
+              <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-orange-400 transition-colors" />
             </CardContent>
           </Card>
         </Link>
       </div>
 
-      {/* Recent Applications */}
+      {/* Recent Applications (live via Supabase Realtime) */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Recent Applications</CardTitle>
@@ -204,8 +203,8 @@ export default function DashboardPage() {
         </CardHeader>
         <CardContent>
           {recent.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <Briefcase className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+            <div className="text-center py-8 text-muted-foreground">
+              <Briefcase className="w-10 h-10 mx-auto mb-3 text-muted-foreground/30" />
               <p className="font-medium">No applications yet</p>
               <p className="text-sm mt-1">Create a job search to get started</p>
             </div>
@@ -213,25 +212,25 @@ export default function DashboardPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="text-left py-3 px-2 font-medium text-gray-500">Job ID</th>
-                    <th className="text-left py-3 px-2 font-medium text-gray-500">Status</th>
-                    <th className="text-left py-3 px-2 font-medium text-gray-500">Approval</th>
-                    <th className="text-left py-3 px-2 font-medium text-gray-500">Applied</th>
-                    <th className="text-left py-3 px-2 font-medium text-gray-500">Created</th>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Job ID</th>
+                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Status</th>
+                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Approval</th>
+                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Applied</th>
+                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Created</th>
                   </tr>
                 </thead>
                 <tbody>
                   {recent.map((app) => (
-                    <tr key={app.id} className="border-b border-gray-50 hover:bg-gray-50">
-                      <td className="py-3 px-2 font-mono text-xs text-gray-700">{app.id.slice(0, 8)}…</td>
+                    <tr key={app.id} className="border-b border-border/50 hover:bg-muted/50">
+                      <td className="py-3 px-2 font-mono text-xs text-foreground">{app.id.slice(0, 8)}…</td>
                       <td className="py-3 px-2">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                          app.status === "submitted" ? "bg-blue-100 text-blue-700" :
-                          app.status === "interview" ? "bg-green-100 text-green-700" :
-                          app.status === "rejected" ? "bg-red-100 text-red-700" :
-                          app.status === "failed" ? "bg-red-100 text-red-700" :
-                          "bg-yellow-100 text-yellow-700"
+                          app.status === "submitted" ? "bg-blue-500/15 text-blue-400" :
+                          app.status === "interview" ? "bg-green-500/15 text-green-400" :
+                          app.status === "rejected" ? "bg-red-500/15 text-red-400" :
+                          app.status === "failed" ? "bg-red-500/15 text-red-400" :
+                          "bg-amber-500/15 text-amber-400"
                         }`}>
                           {app.status}
                         </span>
@@ -239,18 +238,18 @@ export default function DashboardPage() {
                       <td className="py-3 px-2">
                         {app.approval_status ? (
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                            app.approval_status === "pending_approval" ? "bg-orange-100 text-orange-700" :
-                            app.approval_status === "approved" ? "bg-green-100 text-green-700" :
-                            "bg-gray-100 text-gray-600"
+                            app.approval_status === "pending_approval" ? "bg-orange-500/15 text-orange-400" :
+                            app.approval_status === "approved" ? "bg-green-500/15 text-green-400" :
+                            "bg-muted text-muted-foreground"
                           }`}>
                             {app.approval_status === "pending_approval" ? "awaiting" : app.approval_status}
                           </span>
                         ) : (
-                          <span className="text-gray-300">—</span>
+                          <span className="text-muted-foreground/30">—</span>
                         )}
                       </td>
-                      <td className="py-3 px-2 text-gray-600">{app.applied_at ? formatDate(app.applied_at) : "—"}</td>
-                      <td className="py-3 px-2 text-gray-600">{formatDate(app.created_at)}</td>
+                      <td className="py-3 px-2 text-muted-foreground">{app.applied_at ? formatDate(app.applied_at) : "—"}</td>
+                      <td className="py-3 px-2 text-muted-foreground">{formatDate(app.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>
