@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     PROXY_ENABLED: bool = False
 
     # ── Neko Cloud Browser ─────────────────────────────────────────────────────
-    NEKO_IMAGE: str = "jobblitz/neko:latest"
+    NEKO_IMAGE: str = "ghcr.io/m1k1o/neko:chromium"
     NEKO_SESSION_TTL_MINUTES: int = 10
     LOGIN_HOST: str = "localhost"
 

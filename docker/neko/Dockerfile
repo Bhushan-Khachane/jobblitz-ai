@@ -6,8 +6,10 @@ FROM ghcr.io/m1k1o/neko:chromium
 
 ENV NEKO_SCREEN=1366x768@30
 ENV NEKO_EPR=52000-52100
+ENV NEKO_CHROMIUM_FLAGS="--remote-debugging-port=9222 --remote-debugging-address=0.0.0.0"
 
 EXPOSE 8080
+EXPOSE 9222
 EXPOSE 52000-52100/udp
 
 # No password persistence — all sessions are ephemeral

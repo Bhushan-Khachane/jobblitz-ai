@@ -603,9 +603,11 @@ async def batch_auto_apply(ctx: dict) -> dict:
                     user_id=uid,
                     job_listing_id=str(listing.id),
                 )
+                listing.status = "queued"
                 user_counts[uid] += 1
                 dispatched += 1
 
+            await db.commit()
             await redis_pool.close()
 
         except Exception as e:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +38,22 @@ async def update_me(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.patch("/me/application-mode")
+async def update_application_mode(
+    mode: str = Body(..., embed=True),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the user's application mode (manual, assisted, or auto)."""
+    valid_modes = {"manual", "assisted", "auto"}
+    if mode not in valid_modes:
+        raise HTTPException(status_code=400, detail=f"Invalid mode. Use one of: {', '.join(sorted(valid_modes))}")
+    user.application_mode = mode
+    await db.commit()
+    await db.refresh(user)
+    return {"application_mode": mode}
 
 
 @router.get("/me/profile", response_model=ProfileResponse | None)

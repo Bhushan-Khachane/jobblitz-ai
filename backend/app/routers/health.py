@@ -16,7 +16,14 @@ router = APIRouter(prefix="/health", tags=["health"])
 @router.get("/")
 async def health_basic():
     """Basic liveness check — no auth required."""
-    return {"status": "ok", "version": "2.0.0", "timestamp": time.time()}
+    queue = "ok"
+    try:
+        r = aioredis.from_url(settings.REDIS_URL)
+        await r.ping()
+        await r.aclose()
+    except Exception:
+        queue = "unavailable"
+    return {"status": "ok", "version": settings.VERSION, "queue": queue, "timestamp": time.time()}
 
 
 @router.get("/ready")
