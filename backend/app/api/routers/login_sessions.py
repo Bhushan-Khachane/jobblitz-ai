@@ -108,8 +108,18 @@ async def destroy_session(
     user: User = Depends(get_current_user),
 ):
     """Destroy a Neko session and save cookies to the credential store."""
+    # Look up stored cdp_url
+    cdp_url = None
+    async with _async_session() as db:
+        result = await db.execute(
+            select(LoginSession).where(LoginSession.container_id == container_id)
+        )
+        session = result.scalar_one_or_none()
+        if session:
+            cdp_url = session.cdp_url
+
     try:
-        await neko_manager.extract_and_store_cookies(container_id, str(user.id), platform)
+        await neko_manager.extract_and_store_cookies(container_id, str(user.id), platform, cdp_url=cdp_url)
     except Exception as e:
         # Container destruction is handled by extract_and_store_cookies's finally block
         raise HTTPException(status_code=500, detail=f"Failed to save cookies: {str(e)}")
@@ -151,7 +161,7 @@ async def verify_login(
 
     if status == "success":
         # Automatically extract and store cookies
-        await neko_manager.extract_and_store_cookies(container_id, str(user.id), platform)
+        await neko_manager.extract_and_store_cookies(container_id, str(user.id), platform, cdp_url=cdp_url)
         return {"status": "success", "message": "Login confirmed and cookies saved"}
     elif status == "expired":
         return {"status": "expired", "message": "Session has expired"}

@@ -44,6 +44,9 @@ class NekoManager:
         "naukri": ["naukri.com/mnjuser", "naukri.com/homepage", "naukri.com/profile", "naukri.com/mnaukri"],
     }
 
+    # Docker compose network that backend lives on
+    COMPOSE_NETWORK = "jobblitz-ai_default"
+
     def __init__(self):
         self._client = None
 
@@ -70,40 +73,38 @@ class NekoManager:
                 detach=True,
                 remove=True,
                 environment={
-                    "NEKO_PASSWORD": token,
-                    "NEKO_ADMIN_PASSWORD": token + "-admin",
+                    # linuxserver/chromium runs as user abc
+                    "PUID": "1000",
+                    "PGID": "1000",
                 },
                 ports={
-                    "8080/tcp": None,   # Web UI / stream
-                    "9222/tcp": None,   # Chrome DevTools Protocol
+                    "3000/tcp": None,   # Web UI (selkies) — published to host for browser
                 },
                 labels={
                     "jb.user": user_id,
                     "jb.platform": platform,
                     "jb.expires": expires_at.isoformat(),
                 },
+                network=self.COMPOSE_NETWORK,
             )
             container.reload()
 
-            # Get port bindings
-            port_bindings = container.ports.get("8080/tcp")
-            cdp_bindings = container.ports.get("9222/tcp")
-
-            # stream_url is consumed by the user's browser (outside Docker)
+            # Get port bindings for the web UI (consumed by user's browser outside Docker)
+            port_bindings = container.ports.get("3000/tcp")
             public_host = getattr(settings, "NEKO_PUBLIC_HOST", "localhost")
-            # cdp_url is consumed by the backend (inside Docker)
-            private_host = getattr(settings, "LOGIN_HOST", "localhost")
 
             stream_url = ""
-            cdp_url = ""
-
             if port_bindings:
                 port = port_bindings[0]["HostPort"]
                 stream_url = f"http://{public_host}:{port}"
 
-            if cdp_bindings:
-                cdp_port = cdp_bindings[0]["HostPort"]
-                cdp_url = f"http://{private_host}:{cdp_port}"
+            # Get the container's IP on the compose network (consumed by backend inside Docker)
+            networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
+            network_info = networks.get(self.COMPOSE_NETWORK, {})
+            container_ip = network_info.get("IPAddress", "")
+
+            # CDP proxy runs on port 9223 inside the container via socat
+            cdp_url = f"http://{container_ip}:9223" if container_ip else ""
 
             return NekoSession(
                 container_id=container.id,
@@ -135,21 +136,19 @@ class NekoManager:
         """
         client = self._get_client()
         try:
-            # Use provided cdp_url or fall back to Docker port lookup
+            # Check container expiry via Docker labels
             if not cdp_url:
                 container = client.containers.get(container_id)
                 expires_str = container.labels.get("jb.expires", "")
-
                 if expires_str:
                     expires_at = datetime.fromisoformat(expires_str)
                     if datetime.now(timezone.utc) > expires_at.replace(tzinfo=timezone.utc):
                         return "expired"
 
                 container.reload()
-                cdp_bindings = container.ports.get("9222/tcp")
+                cdp_bindings = container.ports.get("9223/tcp")
                 if not cdp_bindings:
                     return "pending"
-
                 cdp_port = cdp_bindings[0]["HostPort"]
                 host = getattr(settings, "LOGIN_HOST", "localhost")
                 cdp_url = f"http://{host}:{cdp_port}"
@@ -166,7 +165,8 @@ class NekoManager:
                             for indicator in indicators:
                                 if indicator in current_url:
                                     return "success"
-                except (httpx.ConnectError, httpx.TimeoutException):
+                except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError):
+                    # CDP not ready yet or container not fully started
                     pass
 
             return "pending"
@@ -175,7 +175,7 @@ class NekoManager:
             logger.error(f"Failed to check login status for {container_id}: {e}")
             return "expired"
 
-    async def extract_and_store_cookies(self, container_id: str, user_id: str, platform: str) -> None:
+    async def extract_and_store_cookies(self, container_id: str, user_id: str, platform: str, cdp_url: str | None = None) -> None:
         """Extract cookies from the browser session and store them encrypted.
 
         Connects to the container's browser via Playwright CDP, extracts all
@@ -192,22 +192,23 @@ class NekoManager:
         _async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         try:
-            # Get CDP port from container
-            client = self._get_client()
-            container = client.containers.get(container_id)
-            container.reload()
-            cdp_bindings = container.ports.get("9222/tcp")
-
             cookies_data: list[dict] = []
 
-            if cdp_bindings:
-                cdp_port = cdp_bindings[0]["HostPort"]
-                host = getattr(settings, "LOGIN_HOST", "localhost")
-                cdp_endpoint = f"http://{host}:{cdp_port}"
+            if not cdp_url:
+                # Fall back to Docker lookup
+                client = self._get_client()
+                container = client.containers.get(container_id)
+                container.reload()
+                networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
+                network_info = networks.get(self.COMPOSE_NETWORK, {})
+                container_ip = network_info.get("IPAddress", "")
+                if container_ip:
+                    cdp_url = f"http://{container_ip}:9223"
 
+            if cdp_url:
                 pw = await async_playwright().start()
                 try:
-                    browser = await pw.chromium.connect_over_cdp(cdp_endpoint)
+                    browser = await pw.chromium.connect_over_cdp(cdp_url)
                     for ctx in browser.contexts:
                         cookies = await ctx.cookies()
                         cookies_data.extend([

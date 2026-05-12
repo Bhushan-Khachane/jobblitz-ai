@@ -37,7 +37,6 @@ services:
       - ./backend/.env
     environment:
       - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001
-      - LOGIN_HOST=host.docker.internal
       - NEKO_PUBLIC_HOST=localhost
     depends_on:
       postgres:
@@ -68,7 +67,6 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - LOGIN_HOST=host.docker.internal
       - NEKO_PUBLIC_HOST=localhost
     depends_on:
       - postgres
@@ -86,12 +84,16 @@ services:
     build:
       context: ./docker/neko
       dockerfile: Dockerfile
-      platforms:
-        - linux/amd64
     image: jobblitz-neko:latest
     profiles:
       - neko-build
     command: ["echo", "Neko image ready"]
+
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1450
 
 volumes:
   pgdata:
