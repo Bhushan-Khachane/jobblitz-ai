@@ -37,7 +37,10 @@ class Settings(BaseSettings):
     # ── Neko Cloud Browser ─────────────────────────────────────────────────────
     NEKO_IMAGE: str = "jobblitz-neko:latest"
     NEKO_SESSION_TTL_MINUTES: int = 10
+    # Host used by backend (inside Docker) to reach Neko containers via mapped ports
     LOGIN_HOST: str = "host.docker.internal"
+    # Host exposed to the frontend browser (localhost on dev, domain in prod)
+    NEKO_PUBLIC_HOST: str = "localhost"
 
     # ── App Version ─────────────────────────────────────────────────────────────
     VERSION: str = "1.0.0"

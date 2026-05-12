@@ -38,6 +38,7 @@ services:
     environment:
       - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001
       - LOGIN_HOST=host.docker.internal
+      - NEKO_PUBLIC_HOST=localhost
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,6 +69,7 @@ services:
       - ./backend/.env
     environment:
       - LOGIN_HOST=host.docker.internal
+      - NEKO_PUBLIC_HOST=localhost
     depends_on:
       - postgres
       - redis

@@ -1,0 +1,15 @@
+node_modules
+.next
+*.log
+.DS_Store
+.git
+.vscode
+*.md
+.env*.local
+playwright-report
+test-results
+coverage
+*.test.ts
+*.test.tsx
+__tests__
+.claude

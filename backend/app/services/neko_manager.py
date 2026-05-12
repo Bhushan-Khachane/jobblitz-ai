@@ -89,17 +89,21 @@ class NekoManager:
             port_bindings = container.ports.get("8080/tcp")
             cdp_bindings = container.ports.get("9222/tcp")
 
-            host = getattr(settings, "LOGIN_HOST", "localhost")
+            # stream_url is consumed by the user's browser (outside Docker)
+            public_host = getattr(settings, "NEKO_PUBLIC_HOST", "localhost")
+            # cdp_url is consumed by the backend (inside Docker)
+            private_host = getattr(settings, "LOGIN_HOST", "localhost")
+
             stream_url = ""
             cdp_url = ""
 
             if port_bindings:
                 port = port_bindings[0]["HostPort"]
-                stream_url = f"http://{host}:{port}"
+                stream_url = f"http://{public_host}:{port}"
 
             if cdp_bindings:
                 cdp_port = cdp_bindings[0]["HostPort"]
-                cdp_url = f"http://{host}:{cdp_port}"
+                cdp_url = f"http://{private_host}:{cdp_port}"
 
             return NekoSession(
                 container_id=container.id,

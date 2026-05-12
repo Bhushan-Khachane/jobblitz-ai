@@ -90,11 +90,15 @@ export default function CloudBrowserModal({
           </div>
         </div>
 
-        {/* Security badge */}
-        <div className="px-4 py-2 bg-primary-500/10 border-b border-primary-500/20">
+        {/* Security badge + password */}
+        <div className="px-4 py-2 bg-primary-500/10 border-b border-primary-500/20 space-y-1">
           <p className="text-xs text-primary-400 text-center">
             Your password never reaches JobBlitz servers. This is a secure, isolated browser session.
           </p>
+          <div className="flex items-center justify-center gap-2">
+            <span className="text-xs text-muted-foreground">Session password:</span>
+            <code className="text-xs bg-black/30 px-2 py-0.5 rounded text-primary-300 font-mono select-all">{token}</code>
+          </div>
         </div>
 
         {/* Browser iframe — reserve bottom space for footer when iframe is active */}
@@ -136,10 +140,11 @@ export default function CloudBrowserModal({
             </div>
           ) : (
             <iframe
-              src={`${streamUrl}?token=${token}`}
+              src={streamUrl}
               className="w-full border-0"
               style={{ height: "100%" }}
               title={`${platform} Login`}
+              allow="fullscreen; autoplay; clipboard-read; clipboard-write; display-capture"
             />
           )}
         </div>
