@@ -6,9 +6,12 @@ JobBlitz never receives user passwords — only session cookies are captured.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -38,7 +41,8 @@ async def create_session(
     try:
         session = await neko_manager.create_session(str(user.id), platform)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
+        logger.error(f"Failed to create session for user {user.id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to create browser session. Please try again.")
 
     # Persist session to database
     async with _async_session() as db:
@@ -85,18 +89,15 @@ async def get_session_status(
         # Check actual login status via Neko CDP — pass stored cdp_url
         status = await neko_manager.check_login_status(session.container_id, platform, cdp_url=session.cdp_url)
 
-        if status == "success":
-            session.status = "cookies_saved"
-        elif status == "expired":
+        if status == "expired":
             session.status = "expired"
-
-        await db.commit()
+            await db.commit()
 
         return {
             "container_id": session.container_id,
             "stream_url": session.iframe_url,
             "token": session.token,
-            "status": session.status,
+            "status": status,
             "expires_at": session.expires_at.isoformat(),
         }
 
@@ -112,7 +113,10 @@ async def destroy_session(
     cdp_url = None
     async with _async_session() as db:
         result = await db.execute(
-            select(LoginSession).where(LoginSession.container_id == container_id)
+            select(LoginSession).where(
+                LoginSession.container_id == container_id,
+                LoginSession.user_id == user.id,
+            )
         )
         session = result.scalar_one_or_none()
         if session:
@@ -151,7 +155,10 @@ async def verify_login(
     cdp_url = None
     async with _async_session() as db:
         result = await db.execute(
-            select(LoginSession).where(LoginSession.container_id == container_id)
+            select(LoginSession).where(
+                LoginSession.container_id == container_id,
+                LoginSession.user_id == user.id,
+            )
         )
         session = result.scalar_one_or_none()
         if session:

@@ -6,6 +6,8 @@ JobBlitz never handles user passwords — only session cookies are captured.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -68,7 +70,8 @@ class NekoManager:
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.NEKO_SESSION_TTL_MINUTES)
 
         try:
-            container = client.containers.run(
+            container = await asyncio.to_thread(
+                client.containers.run,
                 settings.NEKO_IMAGE,
                 detach=True,
                 remove=True,
@@ -87,7 +90,7 @@ class NekoManager:
                 },
                 network=self.COMPOSE_NETWORK,
             )
-            container.reload()
+            await asyncio.to_thread(container.reload)
 
             # Get port bindings for the web UI (consumed by user's browser outside Docker)
             port_bindings = container.ports.get("3000/tcp")
@@ -138,14 +141,14 @@ class NekoManager:
         try:
             # Check container expiry via Docker labels
             if not cdp_url:
-                container = client.containers.get(container_id)
+                container = await asyncio.to_thread(client.containers.get, container_id)
                 expires_str = container.labels.get("jb.expires", "")
                 if expires_str:
                     expires_at = datetime.fromisoformat(expires_str)
                     if datetime.now(timezone.utc) > expires_at.replace(tzinfo=timezone.utc):
                         return "expired"
 
-                container.reload()
+                await asyncio.to_thread(container.reload)
                 cdp_bindings = container.ports.get("9223/tcp")
                 if not cdp_bindings:
                     return "pending"
@@ -165,8 +168,8 @@ class NekoManager:
                             for indicator in indicators:
                                 if indicator in current_url:
                                     return "success"
-                except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError):
-                    # CDP not ready yet or container not fully started
+                except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError, json.JSONDecodeError):
+                    # CDP not ready yet, container not fully started, or invalid response
                     pass
 
             return "pending"
@@ -197,8 +200,13 @@ class NekoManager:
             if not cdp_url:
                 # Fall back to Docker lookup
                 client = self._get_client()
-                container = client.containers.get(container_id)
-                container.reload()
+                container = await asyncio.to_thread(client.containers.get, container_id)
+                await asyncio.to_thread(container.reload)
+                # Validate ownership before extracting anything
+                if container.labels.get("jb.user") != user_id:
+                    raise PermissionError(
+                        f"Container {container_id[:12]} does not belong to user {user_id}"
+                    )
                 networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
                 network_info = networks.get(self.COMPOSE_NETWORK, {})
                 container_ip = network_info.get("IPAddress", "")
@@ -222,8 +230,6 @@ class NekoManager:
                             for c in cookies
                         ])
                     await browser.close()
-                except Exception as e:
-                    logger.warning(f"CDP cookie extraction failed: {e}")
                 finally:
                     await pw.stop()
 
@@ -232,7 +238,6 @@ class NekoManager:
 
             # Store encrypted cookies in session_cookies column
             try:
-                import json
                 encrypted_cookies = encrypt(json.dumps(cookies_data))
 
                 async with _async_session() as db:
@@ -271,9 +276,9 @@ class NekoManager:
         """Kill and remove a Neko container."""
         client = self._get_client()
         try:
-            container = client.containers.get(container_id)
-            container.kill()
-            container.remove(force=True)
+            container = await asyncio.to_thread(client.containers.get, container_id)
+            await asyncio.to_thread(container.kill)
+            await asyncio.to_thread(container.remove, force=True)
             logger.info(f"Destroyed Neko container {container_id[:12]}")
         except Exception as e:
             logger.warning(f"Failed to destroy Neko container {container_id[:12]}: {e}")
