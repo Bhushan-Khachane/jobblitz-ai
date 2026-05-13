@@ -94,3 +94,29 @@ async def health_detailed(user: User = Depends(get_current_user)):
         "checks": checks,
         "timestamp": time.time(),
     }
+
+
+@router.get("/browser-worker")
+async def health_browser_worker():
+    """Health check for the browser-worker service."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get("http://browser-worker:8002/health")
+            if resp.status_code == 200:
+                return {"status": "ok", "detail": resp.json()}
+    except Exception as e:
+        return {"status": "unreachable", "detail": str(e)[:200]}
+
+
+@router.get("/adk-orchestrator")
+async def health_adk_orchestrator():
+    """Health check for the ADK orchestrator service."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get("http://adk-orchestrator:8001/health")
+            if resp.status_code == 200:
+                return {"status": "ok", "detail": resp.json()}
+    except Exception as e:
+        return {"status": "unreachable", "detail": str(e)[:200]}

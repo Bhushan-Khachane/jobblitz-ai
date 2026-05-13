@@ -280,3 +280,285 @@ class LoginSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     user: Mapped["User"] = relationship("User")
+
+
+class UserPortalAccount(Base):
+    """Links a user to a job portal without storing credentials."""
+    __tablename__ = "user_portal_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    portal: Mapped[str] = mapped_column(String(50), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(255))
+    profile_url: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(50), default="disconnected")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (Index("ix_user_portal_accounts_user_portal", "user_id", "portal", unique=True),)
+
+
+class BrowserSession(Base):
+    """Isolated browser sessions per user per portal."""
+    __tablename__ = "browser_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    portal: Mapped[str] = mapped_column(String(50), nullable=False)
+    session_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending_login")
+    cookies_path: Mapped[str | None] = mapped_column(Text)
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (Index("ix_browser_sessions_user_portal", "user_id", "portal"),)
+
+
+class JobSearchProfile(Base):
+    """Enhanced search configuration for ADK discovery agents."""
+    __tablename__ = "job_search_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    keywords: Mapped[str] = mapped_column(String(500), nullable=False)
+    locations: Mapped[list[str] | None] = mapped_column(JSONB)
+    experience_level: Mapped[str | None] = mapped_column(String(50))
+    job_type: Mapped[str | None] = mapped_column(String(50))
+    remote_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    salary_min_lpa: Mapped[float | None] = mapped_column(Float)
+    salary_max_lpa: Mapped[float | None] = mapped_column(Float)
+    portals: Mapped[list[str] | None] = mapped_column(JSONB)
+    extra_filters: Mapped[dict | None] = mapped_column(JSONB)
+    years_experience: Mapped[int | None] = mapped_column(Integer, default=2)
+    job_age_days: Mapped[int | None] = mapped_column(Integer, default=7)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (Index("ix_job_search_profiles_user_active", "user_id", "is_active"),)
+
+
+class JobLead(Base):
+    """Raw job discoveries from ADK agents."""
+    __tablename__ = "job_leads"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    search_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("job_search_profiles.id", ondelete="SET NULL"), index=True
+    )
+    portal: Mapped[str] = mapped_column(String(50), nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    company: Mapped[str] = mapped_column(String(255), nullable=False)
+    location: Mapped[str | None] = mapped_column(String(255))
+    jd_text: Mapped[str | None] = mapped_column(Text)
+    posted_at: Mapped[str | None] = mapped_column(String(100))
+    external_job_id: Mapped[str | None] = mapped_column(String(255))
+    normalized_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    raw_data: Mapped[dict | None] = mapped_column(JSONB)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    processed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    __table_args__ = (
+        Index("ix_job_leads_user_portal", "user_id", "portal"),
+        Index("ix_job_leads_processed", "processed"),
+        Index("ix_job_leads_hash", "normalized_hash"),
+    )
+
+
+class JobScore(Base):
+    """Fit scores produced by the screening agent."""
+    __tablename__ = "job_scores"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    job_lead_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("job_leads.id", ondelete="CASCADE"), nullable=False
+    )
+    fit_score: Mapped[float] = mapped_column(Float, nullable=False)
+    must_have_match: Mapped[dict | None] = mapped_column(JSONB)
+    gap_notes: Mapped[str | None] = mapped_column(Text)
+    decision: Mapped[str] = mapped_column(String(20), nullable=False)
+    scored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_job_scores_user_id", "user_id"), Index("ix_job_scores_fit_score", "fit_score"))
+
+
+class ApplicationPlan(Base):
+    """AI-generated application plans before execution."""
+    __tablename__ = "application_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    job_lead_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("job_leads.id", ondelete="CASCADE"), nullable=False
+    )
+    fields: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    resume_variant: Mapped[str | None] = mapped_column(Text)
+    cover_letter: Mapped[str | None] = mapped_column(Text)
+    requires_approval: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_application_plans_user_id", "user_id"),
+        Index("ix_application_plans_requires_approval", "requires_approval"),
+    )
+
+
+class ApplicationRun(Base):
+    """Execution runs for job applications."""
+    __tablename__ = "application_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    job_lead_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("job_leads.id", ondelete="CASCADE"), nullable=False
+    )
+    plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("application_plans.id", ondelete="SET NULL")
+    )
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_application_runs_user_status", "user_id", "status"),
+        Index("ix_application_runs_job_lead", "job_lead_id"),
+    )
+
+
+class ApplicationStepEvent(Base):
+    """Granular step-level audit trail for each application run."""
+    __tablename__ = "application_step_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("application_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    step_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    tool_args: Mapped[dict | None] = mapped_column(JSONB)
+    tool_output: Mapped[str | None] = mapped_column(Text)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    screenshot_url: Mapped[str | None] = mapped_column(Text)
+    diff_text: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_step_events_run_id", "run_id"), Index("ix_step_events_success", "success"))
+
+
+class AgentRun(Base):
+    """Full replay state for ADK agent executions."""
+    __tablename__ = "agent_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    agent_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    input_json: Mapped[dict | None] = mapped_column(JSONB)
+    state_json: Mapped[dict | None] = mapped_column(JSONB)
+    output_json: Mapped[dict | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(50), default="running")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (Index("ix_agent_runs_user_id", "user_id"), Index("ix_agent_runs_agent_name", "agent_name"))
+
+
+class ApprovalRequest(Base):
+    """Human approval gates for low-confidence or high-risk applications."""
+    __tablename__ = "approval_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    job_lead_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("job_leads.id", ondelete="CASCADE"), nullable=False
+    )
+    plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("application_plans.id", ondelete="SET NULL")
+    )
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("application_runs.id", ondelete="SET NULL")
+    )
+    fit_score: Mapped[float | None] = mapped_column(Float)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (Index("ix_approval_requests_user_status", "user_id", "status"),)
+
+
+class PortalInboxEvent(Base):
+    """Status updates synced from portals (interviews, rejections, views)."""
+    __tablename__ = "portal_inbox_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    portal: Mapped[str] = mapped_column(String(50), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    job_title: Mapped[str | None] = mapped_column(String(500))
+    company: Mapped[str | None] = mapped_column(String(255))
+    event_data: Mapped[dict | None] = mapped_column(JSONB)
+    read: Mapped[bool] = mapped_column(Boolean, default=False)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_portal_inbox_events_user_portal", "user_id", "portal"),
+        Index("ix_portal_inbox_events_read", "read"),
+    )
+
+
+class AuditEvent(Base):
+    """Compliance audit trail for all agent and worker actions."""
+    __tablename__ = "audit_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    actor: Mapped[str] = mapped_column(String(50), nullable=False)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    details: Mapped[dict | None] = mapped_column(JSONB)
+    ip_address: Mapped[str | None] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_audit_events_user_id", "user_id"),
+        Index("ix_audit_events_actor", "actor"),
+        Index("ix_audit_events_created_at", "created_at"),
+    )

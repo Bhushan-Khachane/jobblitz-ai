@@ -1,0 +1,136 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: jobblitz
+      POSTGRES_PASSWORD: jobblitz
+      POSTGRES_DB: jobblitz
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobblitz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ../../backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../../backend/.env
+    environment:
+      - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001
+      - NEKO_PUBLIC_HOST=localhost
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - uploads_data:/app/uploads
+      - screenshots_data:/app/screenshots
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build: ../../frontend
+    ports:
+      - "3001:3000"
+    env_file:
+      - ../../frontend/.env
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  arq_worker:
+    build: ../../backend
+    command: arq arq_worker.WorkerSettings
+    env_file:
+      - ../../backend/.env
+    environment:
+      - NEKO_PUBLIC_HOST=localhost
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    volumes:
+      - uploads_data:/app/uploads
+      - screenshots_data:/app/screenshots
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  neko:
+    build:
+      context: ../../docker/neko
+      dockerfile: Dockerfile
+    image: jobblitz-neko:latest
+    profiles:
+      - neko-build
+    command: ["echo", "Neko image ready"]
+
+  # ── NEW: Intelligence Plane ────────────────────────────────────────────────
+  adk-orchestrator:
+    build: ../../apps/adk-orchestrator
+    ports:
+      - "8001:8001"
+    env_file:
+      - ../../backend/.env
+    environment:
+      - BROWSER_WORKER_URL=http://browser-worker:8002
+      - ADK_API_URL=http://backend:8000/api/v1
+    depends_on:
+      - backend
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  # ── NEW: Execution Plane ─────────────────────────────────────────────────
+  browser-worker:
+    build: ../../apps/browser-worker
+    ports:
+      - "8002:8002"
+    env_file:
+      - ../../backend/.env
+    environment:
+      - BROWSE_BIN=/opt/gstack/browse/dist/browse
+    volumes:
+      - gstack-sessions:/root/.gstack
+    depends_on:
+      - backend
+      - redis
+    shm_size: "2gb"
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1450
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads_data:
+  screenshots_data:
+  gstack-sessions:

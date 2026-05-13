@@ -268,3 +268,151 @@ class DailyStat(BaseModel):
 
 class DailyStatsResponse(BaseModel):
     stats: list[DailyStat]
+
+
+# ── 3-Plane Architecture — New Schemas ──────────────────────────────────────────
+
+class PortalSessionCreate(BaseModel):
+    portal: str = Field(pattern="^(naukri|linkedin|indeed)$")
+
+
+class PortalSessionResponse(BaseModel):
+    id: uuid.UUID
+    session_id: str
+    portal: str
+    status: str
+    manual_login_url: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class JobSearchProfileCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    keywords: str = Field(min_length=1, max_length=500)
+    locations: list[str] | None = None
+    experience_level: str | None = None
+    job_type: str | None = None
+    remote_only: bool = False
+    salary_min_lpa: float | None = None
+    salary_max_lpa: float | None = None
+    portals: list[str] | None = None
+    extra_filters: dict | None = None
+    years_experience: int | None = 2
+    job_age_days: int | None = 7
+
+
+class JobSearchProfileResponse(JobSearchProfileCreate):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class JobLeadResponse(BaseModel):
+    id: uuid.UUID
+    portal: str
+    url: str
+    title: str
+    company: str
+    location: str | None
+    jd_text: str | None
+    posted_at: str | None
+    experience: str | None = None
+    salary: str | None = None
+    fit_score: float | None = None
+    decision: str | None = None
+    processed: bool
+    discovered_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class JobScoreResponse(BaseModel):
+    id: uuid.UUID
+    job_lead_id: uuid.UUID
+    fit_score: float
+    must_have_match: dict | None
+    gap_notes: str | None
+    decision: str
+    scored_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ApplicationPlanResponse(BaseModel):
+    id: uuid.UUID
+    job_lead_id: uuid.UUID
+    fields: dict
+    resume_variant: str | None
+    cover_letter: str | None
+    requires_approval: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ApplicationRunResponse(BaseModel):
+    id: uuid.UUID
+    job_lead_id: uuid.UUID
+    plan_id: uuid.UUID | None
+    status: str
+    error_message: str | None
+    retry_count: int
+    started_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ApplicationStepEventResponse(BaseModel):
+    id: uuid.UUID
+    run_id: uuid.UUID
+    step_name: str
+    tool_name: str
+    tool_args: dict | None
+    tool_output: str | None
+    success: bool
+    error_message: str | None
+    screenshot_url: str | None
+    diff_text: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ApprovalRequestResponse(BaseModel):
+    id: uuid.UUID
+    job_lead_id: uuid.UUID
+    fit_score: float | None
+    reason: str
+    status: str
+    reviewed_at: datetime | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PortalInboxEventResponse(BaseModel):
+    id: uuid.UUID
+    portal: str
+    event_type: str
+    job_title: str | None
+    company: str | None
+    event_data: dict | None
+    read: bool
+    occurred_at: datetime | None
+    synced_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class StandardRunResponse(BaseModel):
+    run_id: str
+    status: str
+    events: list[dict] = []
+    error: str | None = None

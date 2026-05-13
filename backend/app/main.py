@@ -24,6 +24,13 @@ from app.routers import (
     users,
 )
 from app.api.routers import login_sessions
+from app.routers import (
+    application_plans as application_plans_router,
+    discovery,
+    portal_sessions,
+    scoring,
+    status_sync,
+)
 
 
 async def check_db_ping() -> bool:
@@ -136,3 +143,8 @@ app.include_router(applications.router, prefix="/api/v1")
 app.include_router(cover_letters.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(login_sessions.router, prefix="/api/v1")
+app.include_router(portal_sessions.router, prefix="/api/v1")
+app.include_router(discovery.router, prefix="/api/v1")
+app.include_router(scoring.router, prefix="/api/v1")
+app.include_router(application_plans_router.router, prefix="/api/v1")
+app.include_router(status_sync.router, prefix="/api/v1")

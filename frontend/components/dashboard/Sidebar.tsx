@@ -21,8 +21,9 @@ import { useState } from "react";
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/profile", label: "My Profile", icon: User },
-  { href: "/connect", label: "Connect Accounts", icon: Link2 },
-  { href: "/searches", label: "Job Searches", icon: Search },
+  { href: "/portals", label: "Portals", icon: Link2 },
+  { href: "/discovery", label: "Discovery", icon: Search },
+  { href: "/review-jobs", label: "Review Jobs", icon: ClipboardCheck },
   { href: "/applications", label: "Applications", icon: Briefcase },
   { href: "/approval-queue", label: "Approval Queue", icon: ClipboardCheck },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },

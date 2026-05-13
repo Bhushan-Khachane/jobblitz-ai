@@ -9,4 +9,6 @@ uploads/
 screenshots/
 .DS_Store
 *.tar.gz
-.gstack
+.gstack/
+*.cookies
+*.session
