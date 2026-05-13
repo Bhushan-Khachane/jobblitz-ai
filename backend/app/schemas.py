@@ -283,9 +283,30 @@ class PortalSessionResponse(BaseModel):
     status: str
     manual_login_url: str | None
     login_method: str = "cookie"
+    verified: bool = False
+    last_verified_at: datetime | None
+    expires_at: datetime | None
+    evidence: dict | None = None
+    error: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class PortalSessionListResponse(BaseModel):
+    sessions: list[PortalSessionResponse]
+
+    model_config = {"from_attributes": True}
+
+
+class PortalVerifyResponse(BaseModel):
+    verified: bool
+    reason: str | None
+    url: str | None
+    screenshot_url: str | None
+    page_text_excerpt: str | None
+    status: str
+    error: str | None = None
 
 
 class JobSearchProfileCreate(BaseModel):

@@ -1,9 +1,10 @@
 """
 Manages per-user browser sessions with two login modes:
-  1) handoff    — headed Chrome window (local dev with display)
-  2) cookie_import — JSON cookie upload (Docker / cloud / headless)
+  1) cookie_import (DEFAULT) — JSON cookie upload, works everywhere
+  2) handoff (LOCAL DEV ONLY) — headed Chrome window, requires display
 
 Auto-detects environment and branches accordingly.
+Always returns evidence-rich results on both success and failure.
 """
 
 import asyncio
@@ -40,7 +41,6 @@ def get_login_method() -> str:
         return "handoff" if env_method == "handoff" else "cookie_import"
     if not IS_DOCKER and HAS_DISPLAY:
         return "handoff"
-    # Docker / CI / cloud — default to cookie import (works everywhere)
     return "cookie_import"
 
 
@@ -59,9 +59,15 @@ PORTAL_VERIFY_URLS = {
 }
 
 VERIFY_SUCCESS_SIGNALS = {
-    "naukri": ["mnjuser", "myjobs", "recommended-jobs", "my-profile", "homepage"],
-    "linkedin": ["feed", "mynetwork", "jobs/collections", "in/"],
+    "naukri": ["mnjuser", "myjobs", "recommended-jobs", "homepage", "my-profile", "nlogin/user-login"],
+    "linkedin": ["feed", "mynetwork", "jobs/collections", "notifications"],
     "indeed": ["resume", "applied-jobs", "myjobs"],
+}
+
+LOGIN_PAGE_SIGNALS = {
+    "naukri": ["login", "sign in", "register free", "forgot password", "nlogin/login"],
+    "linkedin": ["sign in", "join now", "forgot password"],
+    "indeed": ["sign in", "create account", "forgot password"],
 }
 
 
@@ -91,8 +97,7 @@ async def start_manual_login(user_id: str, portal: str, session_id: str) -> dict
 
 async def verify_session(session_id: str, portal: str) -> dict:
     """After user says they've logged in, verify the session.
-    For handoff mode: resume headless control from headed window.
-    For cookie_import mode: verify by navigating to a logged-in-only page.
+    Returns evidence-rich dict with verified, url, screenshot, page text.
     """
     try:
         # If we were in handoff, resume headless control
@@ -107,44 +112,67 @@ async def verify_session(session_id: str, portal: str) -> dict:
             await asyncio.sleep(3)
 
         current_url = url().strip()
-        signals = VERIFY_SUCCESS_SIGNALS.get(portal, [])
-
-        if any(s in current_url for s in signals):
-            _save_state(session_id, portal)
-            screenshot(f"/tmp/session_verified_{session_id}.png")
-            return {
-                "verified": True,
-                "session_id": session_id,
-                "url": current_url,
-                "screenshot": f"/tmp/session_verified_{session_id}.png",
-            }
-
-        # Check page text for login indicators
         page_text = text()
-        if "sign in" in page_text.lower() or "log in" in page_text.lower():
-            return {
-                "verified": False,
-                "reason": "Still showing login page. Please complete login and try again.",
-                "url": current_url,
-            }
+        page_excerpt = page_text[:500] if page_text else ""
 
-        # URL is unclear but not login page — accept it
+        # Take screenshot regardless of outcome
+        screenshot_path = f"/tmp/session_verify_{session_id}.png"
+        screenshot(screenshot_path)
+
+        signals = VERIFY_SUCCESS_SIGNALS.get(portal, [])
+        login_signals = LOGIN_PAGE_SIGNALS.get(portal, [])
+
+        # Check URL for authenticated signals
+        url_has_signal = any(s in current_url for s in signals)
+
+        # Check page text for login page signals (failure condition)
+        page_lower = page_text.lower() if page_text else ""
+        text_has_login = any(s in page_lower for s in login_signals)
+
+        if url_has_signal:
+            _save_state(session_id, portal)
+            return _evidence_dict(
+                verified=True,
+                url=current_url,
+                screenshot=screenshot_path,
+                excerpt=page_excerpt,
+                reason=None,
+            )
+
+        if text_has_login:
+            return _evidence_dict(
+                verified=False,
+                url=current_url,
+                screenshot=screenshot_path,
+                excerpt=page_excerpt,
+                reason="Login page still detected. Please complete login and try again.",
+            )
+
+        # Ambiguous — not on login page but no clear authenticated signal
+        # Accept cautiously if not on login page
         _save_state(session_id, portal)
-        return {
-            "verified": True,
-            "session_id": session_id,
-            "url": current_url,
-            "note": "Verified by absence of login page.",
-        }
+        return _evidence_dict(
+            verified=True,
+            url=current_url,
+            screenshot=screenshot_path,
+            excerpt=page_excerpt,
+            reason="Verified by absence of login page. No clear authenticated signal found.",
+        )
 
     except Exception as e:
-        return {"verified": False, "reason": str(e)}
+        return _evidence_dict(
+            verified=False,
+            url=None,
+            screenshot=None,
+            excerpt=None,
+            reason=str(e),
+        )
 
 
 async def restore_session(session_id: str, portal: str) -> bool:
     """Restore a previously saved browser session (cookies + URL)."""
     try:
-        state_load(f"user_{session_id}_{portal}")
+        state_load(_state_key(session_id, portal))
         await asyncio.sleep(1)
         goto(PORTAL_VERIFY_URLS.get(portal, "https://www.naukri.com"))
         await asyncio.sleep(2)
@@ -160,95 +188,72 @@ async def import_cookies_from_json(
 ) -> dict:
     """Accept cookies exported from user's local browser (EditThisCookie JSON).
     Writes to a temp file and imports via gstack browse cookie-import.
+    Returns evidence-rich dict.
     """
+    # Filter cookies to only those matching the target portal domain
+    domain_whitelist = (".naukri.com", "naukri.com", ".linkedin.com", "linkedin.com",
+                        ".indeed.com", "indeed.com")
+    filtered = [c for c in cookies if isinstance(c, dict) and
+                any(d in str(c.get("domain", "")).lower() for d in domain_whitelist)]
+
+    if not filtered:
+        return _evidence_dict(
+            verified=False,
+            url=None,
+            screenshot=None,
+            excerpt=None,
+            reason="No cookies matched the target portal domain after filtering.",
+        )
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(cookies, f)
+        json.dump(filtered, f)
         cookie_file = f.name
 
     try:
         cookie_import_file(cookie_file)
         os.unlink(cookie_file)
-
-        # Verify by navigating to a post-login page
-        verify_url = PORTAL_VERIFY_URLS.get(portal)
-        if verify_url:
-            goto(verify_url)
-            await asyncio.sleep(2)
-
-        current_url = url().strip()
-        signals = VERIFY_SUCCESS_SIGNALS.get(portal, [])
-        verified = any(s in current_url for s in signals)
-
-        if verified:
-            _save_state(session_id, portal)
-            screenshot(f"/tmp/session_verified_{session_id}.png")
-            return {
-                "verified": True,
-                "session_id": session_id,
-                "url": current_url,
-                "screenshot": f"/tmp/session_verified_{session_id}.png",
-            }
-
-        # Check page text
-        page_text = text()
-        if "sign in" in page_text.lower() or "log in" in page_text.lower():
-            return {
-                "verified": False,
-                "reason": "Login page still detected after cookie import. Cookies may be expired or portal-specific.",
-                "url": current_url,
-            }
-
-        # Accept if not on login page
-        _save_state(session_id, portal)
-        return {
-            "verified": True,
-            "session_id": session_id,
-            "url": current_url,
-            "note": "Verified by absence of login page after cookie import.",
-        }
-
     except Exception as e:
         try:
             os.unlink(cookie_file)
         except FileNotFoundError:
             pass
-        return {"verified": False, "reason": str(e)}
+        return _evidence_dict(
+            verified=False,
+            url=None,
+            screenshot=None,
+            excerpt=None,
+            reason=f"Cookie import failed: {e}",
+        )
 
-
-async def notify_session_expired(user_id: str, portal: str):
-    """Send a WhatsApp notification when a session expires."""
-    import httpx
-
-    backend_api = os.getenv("BACKEND_API_URL", "http://backend:8000")
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
-
-    try:
-        async with httpx.AsyncClient() as client:
-            await client.post(
-                f"{backend_api}/api/v1/notifications/whatsapp",
-                json={
-                    "user_id": user_id,
-                    "template": "session_expired",
-                    "params": {
-                        "portal": portal,
-                        "action_url": f"{frontend_url}/portals/connect/{portal}",
-                        "message": (
-                            f"Your {portal.title()} session has expired on JobBlitzz. "
-                            f"Please log in again to resume job applications."
-                        ),
-                    },
-                },
-                timeout=10.0,
-            )
-    except Exception as e:
-        print(f"[WhatsApp notification failed] {e}")
+    # Verify by navigating to a post-login page
+    return await verify_session(session_id, portal)
 
 
 # ── Internal Helpers ─────────────────────────────────────────────────────────
 
 
+def _state_key(session_id: str, portal: str) -> str:
+    return f"user_{session_id}_{portal}"
+
+
 def _save_state(session_id: str, portal: str) -> None:
-    state_save(f"user_{session_id}_{portal}")
+    state_save(_state_key(session_id, portal))
+
+
+def _evidence_dict(
+    verified: bool,
+    url: str | None,
+    screenshot: str | None,
+    excerpt: str | None,
+    reason: str | None,
+) -> dict:
+    return {
+        "verified": verified,
+        "url": url,
+        "screenshot_url": screenshot,
+        "page_text_excerpt": excerpt,
+        "reason": reason,
+    }
 
 
 async def _handoff_login(portal: str, session_id: str) -> dict:
@@ -259,7 +264,7 @@ async def _handoff_login(portal: str, session_id: str) -> dict:
     )
     return {
         "session_id": session_id,
-        "status": "awaiting_manual_login",
+        "status": "awaiting_login",
         "portal": portal,
         "login_method": "handoff",
         "instruction": (
@@ -277,7 +282,7 @@ async def _cookie_import_login(portal: str, session_id: str) -> dict:
         "login_method": "cookie_import",
         "instruction": (
             f"Log in to {portal.title()} in your own browser, export cookies via "
-            f"EditThisCookie (or similar), and paste the JSON below."
+            f"EditThisCookie, and paste the JSON below."
         ),
     }
 

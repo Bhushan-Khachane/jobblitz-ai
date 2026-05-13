@@ -311,9 +311,12 @@ class BrowserSession(Base):
     portal: Mapped[str] = mapped_column(String(50), nullable=False)
     session_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     status: Mapped[str] = mapped_column(String(20), default="pending_login")
+    login_method: Mapped[str | None] = mapped_column(String(20))
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
     cookies_path: Mapped[str | None] = mapped_column(Text)
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    evidence_json: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
