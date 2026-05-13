@@ -19,7 +19,13 @@ from browser import (
     text,
     upload,
 )
-from session_manager import create_session, verify_session
+from session_manager import (
+    create_session,
+    import_cookies_from_json,
+    restore_session,
+    start_manual_login,
+    verify_session,
+)
 
 app = FastAPI(
     title="JobBlitz Browser Worker",
@@ -119,6 +125,23 @@ class SessionCreateRequest(BaseModel):
 class SessionVerifyRequest(BaseModel):
     session_id: str
     portal: str = Field(pattern="^(naukri|linkedin|indeed)$")
+
+
+class SessionStartLoginRequest(BaseModel):
+    user_id: str
+    portal: str = Field(pattern="^(naukri|linkedin|indeed)$")
+    session_id: str
+
+
+class SessionRestoreRequest(BaseModel):
+    session_id: str
+    portal: str = Field(pattern="^(naukri|linkedin|indeed)$")
+
+
+class CookieImportPayload(BaseModel):
+    cookies: list[dict]
+    portal: str = Field(pattern="^(naukri|linkedin|indeed)$")
+    session_id: str
 
 
 # ── Browser Action Endpoints ─────────────────────────────────────────────────
@@ -241,7 +264,37 @@ async def endpoint_create_session(body: SessionCreateRequest):
     return {"status": "ok", "result": result}
 
 
+@app.post("/sessions/start-login")
+async def endpoint_start_login(body: SessionStartLoginRequest):
+    try:
+        result = await start_manual_login(body.user_id, body.portal, body.session_id)
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/sessions/verify")
 async def endpoint_verify_session(body: SessionVerifyRequest):
-    result = verify_session(body.session_id, body.portal)
-    return {"status": "ok", "result": result}
+    try:
+        result = await verify_session(body.session_id, body.portal)
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/sessions/restore")
+async def endpoint_restore_session(body: SessionRestoreRequest):
+    try:
+        success = await restore_session(body.session_id, body.portal)
+        return {"status": "ok", "restored": success}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/session/import-cookies")
+async def endpoint_import_cookies_json(body: CookieImportPayload):
+    try:
+        result = await import_cookies_from_json(body.cookies, body.portal, body.session_id)
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

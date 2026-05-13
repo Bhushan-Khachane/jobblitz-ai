@@ -282,6 +282,7 @@ class PortalSessionResponse(BaseModel):
     portal: str
     status: str
     manual_login_url: str | None
+    login_method: str = "cookie"
     created_at: datetime
 
     model_config = {"from_attributes": True}

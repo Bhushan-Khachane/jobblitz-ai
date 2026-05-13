@@ -58,12 +58,17 @@ async def create_portal_session(
         "linkedin": "https://www.linkedin.com/feed/",
     }.get(portal)
 
+    # Determine login method from env (mirrors browser-worker logic)
+    import os
+    login_method = os.getenv("LOGIN_METHOD", "cookie").lower()
+
     return {
         "id": browser_session.id,
         "session_id": browser_session.session_id,
         "portal": portal,
         "status": browser_session.status,
         "manual_login_url": manual_login_url,
+        "login_method": login_method,
         "created_at": browser_session.created_at,
     }
 
@@ -133,13 +138,95 @@ async def get_session_status(
         "linkedin": "https://www.linkedin.com/feed/",
     }.get(session.portal)
 
+    import os
+    login_method = os.getenv("LOGIN_METHOD", "cookie").lower()
+
     return {
         "id": session.id,
         "session_id": session.session_id,
         "portal": session.portal,
         "status": session.status,
         "manual_login_url": manual_login_url,
+        "login_method": login_method,
         "created_at": session.created_at,
+    }
+
+
+@router.post("/{session_id}/import-cookies", response_model=StandardRunResponse)
+async def import_cookies(
+    session_id: str,
+    payload: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Accept cookies from user's local browser and import into browser-worker session."""
+    import os
+
+    import httpx
+
+    result = await db.execute(
+        select(BrowserSession).where(
+            BrowserSession.session_id == session_id,
+            BrowserSession.user_id == user.id,
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    portal = payload.get("portal", session.portal)
+    cookies = payload.get("cookies", [])
+
+    browser_worker_url = os.getenv("BROWSER_WORKER_URL", "http://browser-worker:8002")
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{browser_worker_url}/session/import-cookies",
+                json={
+                    "cookies": cookies,
+                    "portal": portal,
+                    "session_id": session_id,
+                },
+            )
+            bw_result = resp.json().get("result", {})
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Browser-worker error: {e}")
+
+    if bw_result.get("verified"):
+        session.status = "active"
+        session.last_verified_at = datetime.now(timezone.utc)
+
+        account_result = await db.execute(
+            select(UserPortalAccount).where(
+                UserPortalAccount.user_id == user.id,
+                UserPortalAccount.portal == portal,
+            )
+        )
+        account = account_result.scalar_one_or_none()
+        if not account:
+            account = UserPortalAccount(
+                user_id=user.id,
+                portal=portal,
+                status="connected",
+            )
+            db.add(account)
+        else:
+            account.status = "connected"
+
+        await db.commit()
+        await db.refresh(session)
+        return {
+            "run_id": str(session.id),
+            "status": session.status,
+            "events": [{"step": "cookie_import", "result": "verified", "url": bw_result.get("url")}],
+            "error": None,
+        }
+
+    return {
+        "run_id": str(session.id),
+        "status": session.status,
+        "events": [{"step": "cookie_import", "result": "failed", "reason": bw_result.get("reason")}],
+        "error": bw_result.get("reason"),
     }
 
 

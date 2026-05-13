@@ -122,8 +122,10 @@ services:
       - ../../backend/.env
     environment:
       - BROWSE_BIN=/opt/gstack/browse/dist/browse
+      - DISPLAY=${DISPLAY:-:0}
     volumes:
       - gstack-sessions:/root/.gstack
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
     depends_on:
       - backend
       - redis

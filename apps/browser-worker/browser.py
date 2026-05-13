@@ -60,3 +60,30 @@ def status() -> str:
 
 def import_cookies(portal: str, domain: str) -> str:
     return _run("cookie-import-browser", portal, "--domain", domain)
+
+
+def url() -> str:
+    return _run("url")
+
+
+def handoff(message: str = "") -> str:
+    args = ["handoff"]
+    if message:
+        args.extend(["--message", message])
+    return _run(*args)
+
+
+def resume() -> str:
+    return _run("resume")
+
+
+def state_save(name: str) -> str:
+    return _run("state", "save", name)
+
+
+def state_load(name: str) -> str:
+    return _run("state", "load", name)
+
+
+def cookie_import_file(cookie_file: str) -> str:
+    return _run("cookie-import", cookie_file)
