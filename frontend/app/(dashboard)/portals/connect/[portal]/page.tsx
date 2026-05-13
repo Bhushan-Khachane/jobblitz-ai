@@ -136,7 +136,7 @@ export default function ConnectPortalPage() {
               1
             </div>
             <p className="text-sm text-foreground">
-              Click the button below to open a {portal.title()} login window on your screen.
+              Click the button below to open a {portal.charAt(0).toUpperCase() + portal.slice(1)} login window on your screen.
             </p>
           </div>
 
