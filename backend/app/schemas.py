@@ -375,7 +375,7 @@ class ApplicationStepEventResponse(BaseModel):
     step_name: str
     tool_name: str
     tool_args: dict | None
-    tool_output: str | None
+    tool_output: dict | None
     success: bool
     dry_run: bool = False
     planned_action: dict | None = None

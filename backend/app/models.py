@@ -461,7 +461,7 @@ class ApplicationStepEvent(Base):
     step_name: Mapped[str] = mapped_column(String(255), nullable=False)
     tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
     tool_args: Mapped[dict | None] = mapped_column(JSONB)
-    tool_output: Mapped[str | None] = mapped_column(Text)
+    tool_output: Mapped[dict | None] = mapped_column(JSONB)
     success: Mapped[bool] = mapped_column(Boolean, nullable=False)
     dry_run: Mapped[bool] = mapped_column(Boolean, default=False)
     planned_action: Mapped[dict | None] = mapped_column(JSONB)
