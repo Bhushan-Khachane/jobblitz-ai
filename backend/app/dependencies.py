@@ -50,6 +50,36 @@ async def get_current_user(
     return user
 
 
+# ── Internal service auth (ADK orchestrator, browser-worker) ──────────────────
+
+INTERNAL_API_KEY = getattr(settings, "INTERNAL_API_KEY", "jobblitz-internal-dev-key")
+
+
+from fastapi import Header as FastAPIHeader
+
+optional_security = HTTPBearer(auto_error=False)
+
+async def get_current_user_or_service(
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
+    x_internal_api_key: str | None = FastAPIHeader(None, alias="x-internal-api-key"),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Accept either a valid user JWT or an internal service API key.
+    For service-to-service calls, pass X-Internal-Api-Key header.
+    """
+    # Check internal API key first (for service-to-service)
+    if x_internal_api_key == INTERNAL_API_KEY:
+        # Return a dummy system user for internal calls
+        result = await db.execute(select(User).limit(1))
+        user = result.scalar_one_or_none()
+        if user:
+            return user
+    # Fall back to JWT auth
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing auth credentials")
+    return await get_current_user(credentials, db)
+
+
 class RateLimiter:
     """Redis sliding-window rate limiter: per-user hour and day limits.
     Uses atomic Lua script for check+increment to prevent race conditions.

@@ -96,7 +96,7 @@ app = FastAPI(
 # ── Security middleware (outermost first) ────────────────────────────────────
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "*.jobblitz.ai", ".localhost"])
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "*.jobblitz.ai", ".localhost", "backend", "adk-orchestrator", "browser-worker", "frontend"])
 app.add_middleware(RequestLogMiddleware)
 
 # ── CORS ─────────────────────────────────────────────────────────────────────

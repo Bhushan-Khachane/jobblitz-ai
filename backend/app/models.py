@@ -463,6 +463,8 @@ class ApplicationStepEvent(Base):
     tool_args: Mapped[dict | None] = mapped_column(JSONB)
     tool_output: Mapped[str | None] = mapped_column(Text)
     success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    dry_run: Mapped[bool] = mapped_column(Boolean, default=False)
+    planned_action: Mapped[dict | None] = mapped_column(JSONB)
     error_message: Mapped[str | None] = mapped_column(Text)
     screenshot_url: Mapped[str | None] = mapped_column(Text)
     diff_text: Mapped[str | None] = mapped_column(Text)

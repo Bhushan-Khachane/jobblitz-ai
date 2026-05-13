@@ -38,6 +38,8 @@ services:
     environment:
       - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001
       - NEKO_PUBLIC_HOST=localhost
+      - ADK_ORCHESTRATOR_URL=http://adk-orchestrator:8001
+      - INTERNAL_API_KEY=jobblitz-internal-dev-key
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,6 +70,7 @@ services:
       - ../../backend/.env
     environment:
       - NEKO_PUBLIC_HOST=localhost
+      - ADK_ORCHESTRATOR_URL=http://adk-orchestrator:8001
     depends_on:
       - postgres
       - redis
@@ -99,6 +102,11 @@ services:
     environment:
       - BROWSER_WORKER_URL=http://browser-worker:8002
       - ADK_API_URL=http://backend:8000/api/v1
+      - BACKEND_API_URL=http://backend:8000/api/v1
+      - INTERNAL_API_KEY=jobblitz-internal-dev-key
+      - PYTHONPATH=/app/packages
+    volumes:
+      - ../../packages:/app/packages:ro
     depends_on:
       - backend
       - redis

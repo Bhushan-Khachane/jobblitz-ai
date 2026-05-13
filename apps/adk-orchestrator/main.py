@@ -71,6 +71,7 @@ class AgentRunRequest(BaseModel):
     session_id: str | None = None
     plan_id: str | None = None
     run_id: str | None = None
+    dry_run: bool = False
     expected_signals: list[str] | None = None
 
 
@@ -115,7 +116,7 @@ class StatusSyncRequest(BaseModel):
 
 async def _execute_agent(payload: AgentRunRequest) -> dict:
     agent = payload.agent
-    run_id = str(uuid.uuid4())
+    run_id = payload.run_id or str(uuid.uuid4())
 
     if agent == "discovery":
         result = await run_discovery(payload.search_profile or {}, payload.session_id or "default")
@@ -124,9 +125,9 @@ async def _execute_agent(payload: AgentRunRequest) -> dict:
     elif agent == "planner":
         result = await run_planner(payload.job_lead or {}, payload.user_profile or {}, payload.fit_score or 0, payload.session_id or "default")
     elif agent == "apply":
-        # Fetch plan from backend
-        # For now, placeholder until plan fetch is wired
-        result = {"status": "queued", "run_id": run_id}
+        # plan payload arrives in search_profile field from backend dispatcher
+        application_plan = payload.search_profile or {"fields": []}
+        result = await run_apply(application_plan, payload.session_id or "default", run_id, payload.dry_run)
     elif agent == "verification":
         result = await run_verification(payload.run_id or run_id, payload.session_id or "default", payload.expected_signals)
     elif agent == "status_sync":

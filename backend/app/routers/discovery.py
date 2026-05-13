@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,39 +19,52 @@ router = APIRouter(prefix="/discovery", tags=["discovery"])
 
 @router.post("/run", response_model=StandardRunResponse, status_code=status.HTTP_202_ACCEPTED)
 async def run_discovery(
-    search_profile_id: uuid.UUID,
+    search_profile: dict = Body(..., embed=True),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger a discovery run for a search profile via ADK orchestrator."""
-    result = await db.execute(
-        select(JobSearchProfile).where(
-            JobSearchProfile.id == search_profile_id,
-            JobSearchProfile.user_id == user.id,
-        )
+    """Trigger a discovery run from inline search criteria via ADK orchestrator."""
+    # Use inline search criteria directly (frontend sends keywords, location, portal, etc.)
+    keywords = search_profile.get("keywords", "")
+    location = search_profile.get("location", "")
+    portal = search_profile.get("portal", "naukri")
+    years_experience = search_profile.get("years_experience", 2)
+    job_age_days = search_profile.get("job_age_days", 7)
+
+    if not keywords:
+        raise HTTPException(status_code=400, detail="keywords required")
+
+    # Auto-create a temporary search profile so the flow is stateful
+    profile = JobSearchProfile(
+        user_id=user.id,
+        name=f"Auto: {keywords}",
+        keywords=keywords,
+        locations=[location] if location else None,
+        portals=[portal],
+        years_experience=years_experience,
+        job_age_days=job_age_days,
     )
-    profile = result.scalar_one_or_none()
-    if not profile:
-        raise HTTPException(status_code=404, detail="Search profile not found")
+    db.add(profile)
+    await db.flush()
 
     # Dispatch to ADK orchestrator
-    search_profile = {
-        "id": str(search_profile_id),
-        "keywords": profile.keywords,
-        "location": (profile.locations or [""])[0] if profile.locations else "",
-        "portal": profile.portals[0] if profile.portals else "naukri",
-        "years_experience": profile.years_experience or 2,
-        "job_age_days": profile.job_age_days or 7,
+    adk_search_profile = {
+        "id": str(profile.id),
+        "keywords": keywords,
+        "location": location,
+        "portal": portal,
+        "years_experience": years_experience,
+        "job_age_days": job_age_days,
         "user_id": str(user.id),
     }
 
-    adk_result = await dispatch_discovery(str(user.id), search_profile["portal"], search_profile)
+    adk_result = await dispatch_discovery(str(user.id), portal, adk_search_profile)
     run_id = adk_result.get("run_id")
 
     return {
         "run_id": run_id,
         "status": "queued",
-        "events": [{"step": "discovery_queued", "profile_id": str(search_profile_id)}],
+        "events": [{"step": "discovery_queued", "profile_id": str(profile.id)}],
         "error": None,
     }
 
