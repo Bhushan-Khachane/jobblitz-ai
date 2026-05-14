@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "JobBlitz AI",
+  "version": "1.0.0",
+  "description": "Apply to jobs automatically from your own browser",
+  "icons": {
+    "16":  "icons/icon16.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "notifications",
+    "alarms",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://www.naukri.com/*",
+    "https://www.linkedin.com/*",
+    "https://www.indeed.co.in/*",
+    "https://internshala.com/*",
+    "https://www.shine.com/*",
+    "https://unstop.com/*",
+    "http://localhost:8000/*",
+    "https://api.jobblitz.ai/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "JobBlitz AI"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.naukri.com/*",
+        "https://www.linkedin.com/*",
+        "https://www.indeed.co.in/*",
+        "https://internshala.com/*",
+        "https://www.shine.com/*",
+        "https://unstop.com/*"
+      ],
+      "js": ["src/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/injected.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

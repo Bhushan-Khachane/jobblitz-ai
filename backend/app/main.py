@@ -17,20 +17,21 @@ from app.routers import (
     auth,
     cover_letters,
     credentials,
+    discovery,
     health,
     job_leads,
     job_listings,
     job_searches,
     resumes,
+    status_sync,
     users,
 )
 from app.routers import (
     application_plans as application_plans_router,
-    discovery,
     portal_sessions,
     scoring,
-    status_sync,
 )
+from app.routers.extension_ws import router as extension_ws_router
 
 
 async def check_db_ping() -> bool:
@@ -148,3 +149,4 @@ app.include_router(discovery.router, prefix="/api/v1")
 app.include_router(scoring.router, prefix="/api/v1")
 app.include_router(application_plans_router.router, prefix="/api/v1")
 app.include_router(status_sync.router, prefix="/api/v1")
+app.include_router(extension_ws_router)

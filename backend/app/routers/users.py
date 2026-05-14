@@ -19,6 +19,13 @@ async def get_me(user: User = Depends(get_current_user)):
     return user
 
 
+@router.get("/me/apply-stats")
+async def get_user_apply_stats(user: User = Depends(get_current_user)):
+    from app.services.velocity_governor import get_apply_stats
+    stats = await get_apply_stats(str(user.id))
+    return stats
+
+
 @router.put("/me", response_model=UserResponse)
 async def update_me(
     body: UserUpdate,

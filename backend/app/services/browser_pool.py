@@ -77,7 +77,52 @@ class BrowserPool:
             context = await self._browser.new_context(
                 viewport=viewport,
                 user_agent=user_agent,
+                locale="en-IN",
+                timezone_id="Asia/Kolkata",
+                extra_http_headers={
+                    "Accept-Language": "en-IN,en;q=0.9,hi;q=0.8",
+                    "Accept-Encoding": "gzip, deflate, br",
+                },
             )
+            # Enhanced stealth patches to avoid bot detection
+            await context.add_init_script("""
+                // Patch 1: Hide webdriver flag (most important)
+                Object.defineProperty(navigator, 'webdriver', {
+                  get: () => undefined,
+                  configurable: true
+                });
+                // Patch 2: Add plugin array (headless = no plugins)
+                Object.defineProperty(navigator, 'plugins', {
+                  get: () => Array.from({length: 5}, (_, i) => ({
+                    name: ['Chrome PDF Plugin','Chrome PDF Viewer','Native Client','Widevine','Flash'][i]
+                  }))
+                });
+                // Patch 3: Languages (headless defaults to empty)
+                Object.defineProperty(navigator, 'languages', {
+                  get: () => ['en-IN', 'en-US', 'en', 'hi']
+                });
+                // Patch 4: Add chrome object (headless lacks this)
+                if (!window.chrome) {
+                  window.chrome = {
+                    runtime: { id: undefined },
+                    loadTimes: function(){},
+                    csi: function(){},
+                    app: {}
+                  };
+                }
+                // Patch 5: Randomize canvas fingerprint slightly
+                const origGetContext = HTMLCanvasElement.prototype.getContext;
+                HTMLCanvasElement.prototype.getContext = function(type, ...args) {
+                  const ctx = origGetContext.call(this, type, ...args);
+                  if (type === '2d' && ctx) {
+                    const origFillText = ctx.fillText.bind(ctx);
+                    ctx.fillText = function(text, x, y, ...rest) {
+                      origFillText(text, x + Math.random() * 0.1, y + Math.random() * 0.1, ...rest);
+                    };
+                  }
+                  return ctx;
+                };
+            """)
             await self._pool.put(context)
 
         self._initialized = True
@@ -97,7 +142,31 @@ class BrowserPool:
             # Fallback: create a temporary context
             viewport = random.choice(VIEWPORTS)
             user_agent = random.choice(USER_AGENTS)
-            return await self._browser.new_context(viewport=viewport, user_agent=user_agent)
+            temp_ctx = await self._browser.new_context(
+                viewport=viewport,
+                user_agent=user_agent,
+                locale="en-IN",
+                timezone_id="Asia/Kolkata",
+                extra_http_headers={
+                    "Accept-Language": "en-IN,en;q=0.9,hi;q=0.8",
+                    "Accept-Encoding": "gzip, deflate, br",
+                },
+            )
+            await temp_ctx.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined, configurable: true });
+                Object.defineProperty(navigator, 'plugins', { get: () => Array.from({length: 5}, (_, i) => ({
+                  name: ['Chrome PDF Plugin','Chrome PDF Viewer','Native Client','Widevine','Flash'][i]
+                })) });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-IN', 'en-US', 'en', 'hi'] });
+                if (!window.chrome) { window.chrome = { runtime: { id: undefined }, loadTimes: function(){}, csi: function(){}, app: {} }; }
+                const og = HTMLCanvasElement.prototype.getContext;
+                HTMLCanvasElement.prototype.getContext = function(t, ...a) {
+                  const c = og.call(this, t, ...a);
+                  if (t === '2d' && c) { const f = c.fillText.bind(c); c.fillText = function(txt, x, y, ...r) { f(txt, x + Math.random() * 0.1, y + Math.random() * 0.1, ...r); }; }
+                  return c;
+                };
+            """)
+            return temp_ctx
 
     def available_count(self) -> int:
         """Return number of available contexts in the pool."""
@@ -120,7 +189,27 @@ class BrowserPool:
                     new_ctx = await self._browser.new_context(
                         viewport=random.choice(VIEWPORTS),
                         user_agent=random.choice(USER_AGENTS),
+                        locale="en-IN",
+                        timezone_id="Asia/Kolkata",
+                        extra_http_headers={
+                            "Accept-Language": "en-IN,en;q=0.9,hi;q=0.8",
+                            "Accept-Encoding": "gzip, deflate, br",
+                        },
                     )
+                    await new_ctx.add_init_script("""
+                        Object.defineProperty(navigator, 'webdriver', { get: () => undefined, configurable: true });
+                        Object.defineProperty(navigator, 'plugins', { get: () => Array.from({length: 5}, (_, i) => ({
+                          name: ['Chrome PDF Plugin','Chrome PDF Viewer','Native Client','Widevine','Flash'][i]
+                        })) });
+                        Object.defineProperty(navigator, 'languages', { get: () => ['en-IN', 'en-US', 'en', 'hi'] });
+                        if (!window.chrome) { window.chrome = { runtime: { id: undefined }, loadTimes: function(){}, csi: function(){}, app: {} }; }
+                        const og = HTMLCanvasElement.prototype.getContext;
+                        HTMLCanvasElement.prototype.getContext = function(t, ...a) {
+                          const c = og.call(this, t, ...a);
+                          if (t === '2d' && c) { const f = c.fillText.bind(c); c.fillText = function(txt, x, y, ...r) { f(txt, x + Math.random() * 0.1, y + Math.random() * 0.1, ...r); }; }
+                          return c;
+                        };
+                    """)
                     await self._pool.put(new_ctx)
                 except Exception:
                     logger.error("Failed to create replacement browser context")

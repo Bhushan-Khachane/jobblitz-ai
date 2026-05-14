@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 320px; padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f172a; color: #e2e8f0;
+    }
+    h1 { font-size: 18px; font-weight: 700; color: #6366f1; margin-bottom: 4px; }
+    .subtitle { font-size: 12px; color: #64748b; margin-bottom: 16px; }
+    .status-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot.green  { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .dot.red    { background: #ef4444; }
+    .dot.yellow { background: #eab308; }
+    .status-text { font-size: 13px; }
+    .stats { background: #1e293b; border-radius: 8px; padding: 12px; margin-bottom: 14px; }
+    .stat-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+    .stat-label { color: #64748b; }
+    .stat-value { color: #e2e8f0; font-weight: 600; }
+    .btn {
+      width: 100%; padding: 10px; border: none; border-radius: 8px;
+      font-size: 14px; font-weight: 600; cursor: pointer; margin-bottom: 8px;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-start  { background: #6366f1; color: white; }
+    .btn-stop   { background: #ef4444; color: white; }
+    .btn-login  { background: #1e293b; color: #6366f1; border: 1px solid #6366f1; }
+    .limits { font-size: 11px; color: #475569; margin-top: 8px; line-height: 1.6; }
+    .limits span { color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <h1>JobBlitz AI</h1>
+  <p class="subtitle">Automated Job Applications</p>
+
+  <div class="status-row">
+    <div class="dot" id="ws-dot"></div>
+    <span class="status-text" id="ws-status">Checking...</span>
+  </div>
+
+  <div class="stats" id="stats">
+    <div class="stat-row"><span class="stat-label">Today (Naukri)</span><span class="stat-value" id="count-naukri">0 / 15</span></div>
+    <div class="stat-row"><span class="stat-label">Today (LinkedIn)</span><span class="stat-value" id="count-linkedin">0 / 8</span></div>
+    <div class="stat-row"><span class="stat-label">Today (Indeed)</span><span class="stat-value" id="count-indeed">0 / 20</span></div>
+  </div>
+
+  <button class="btn btn-start" id="btn-start">Start Automation</button>
+  <button class="btn btn-stop"  id="btn-stop"  style="display:none">Stop</button>
+  <button class="btn btn-login" id="btn-login">Connect Account</button>
+
+  <div class="limits">
+    Safe daily limits: <span>Naukri 15 / LinkedIn 8 / Indeed 20</span><br>
+    Min gap: <span>Naukri 3min / LinkedIn 5min</span><br>
+    Active hours: <span>8am - 10pm only</span>
+  </div>
+
+  <script src="src/popup.js"></script>
+</body>
+</html>
