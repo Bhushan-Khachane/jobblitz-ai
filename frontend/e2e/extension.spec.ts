@@ -5,9 +5,9 @@ test('Extension settings page renders correctly', async ({ page }) => {
   await page.waitForLoadState('networkidle');
 
   // Must show token copy button
-  await expect(page.locator('text=/copy/i')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copy' })).toBeVisible();
   // Must show ToS warning
-  await expect(page.locator('text=/terms of service/i')).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Terms of Service/i })).toBeVisible();
   // Must show apply stats section
-  await expect(page.locator('text=/apply stats/i')).toBeVisible();
+  await expect(page.getByText(/Today.s Apply Stats/i)).toBeVisible();
 });
