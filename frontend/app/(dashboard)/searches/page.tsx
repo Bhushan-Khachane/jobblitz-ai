@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import SearchForm from "@/components/dashboard/SearchForm";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
-import api, { jobSearchAPI, credentialsAPI } from "@/lib/api";
+import api, { jobSearchAPI, credentialsAPI, discoveryAPI } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { useRunStatus } from "@/hooks/useRunStatus";
 
@@ -142,7 +142,7 @@ export default function SearchesPage() {
     setTriggerMsgs((m) => ({ ...m, [id]: "" }));
     setActiveRunId(null);
     try {
-      const { data } = await api.post(`/job-searches/${id}/run`);
+      const data = await discoveryAPI.runSearch(id);
       const runId = data.run_id || null;
       if (runId) {
         setActiveRunId(runId);

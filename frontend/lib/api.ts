@@ -226,6 +226,17 @@ export const discoveryAPI = {
       "/discovery/job-leads",
       { params }
     ).then((r) => r.data),
+
+  runSearch: (searchId: string) =>
+    api.post<{ run_id: string; status: string }>(`/job-searches/${searchId}/run`).then((r) => r.data),
+
+  getRunStatus: (runId: string) =>
+    api.get<{
+      status: string;
+      events?: Record<string, unknown>[];
+      pending_approvals?: number;
+      error?: string | null;
+    }>(`/discovery/run/${runId}/status`).then((r) => r.data),
 };
 
 // ── Applications API ────────────────────────────────────────────────────────
@@ -241,7 +252,7 @@ export const applicationsAPI = {
     api.put<Application>(`/applications/${id}/status`, { status }).then((r) => r.data),
 
   approvalQueue: () =>
-    api.get<Application[]>("/applications/approval-queue").then((r) => r.data),
+    api.get<Application[]>("/applications/me/approval-queue").then((r) => r.data),
 
   approve: (id: string) =>
     api.post<{ message: string; application_id: string }>(`/applications/${id}/approve`).then((r) => r.data),

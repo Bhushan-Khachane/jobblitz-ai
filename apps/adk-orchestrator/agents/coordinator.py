@@ -92,7 +92,7 @@ async def run_workflow(
         try:
             async with httpx.AsyncClient() as http:
                 await http.post(
-                    f"{ADK_API_URL}/applications/queue-approval",
+                    f"{ADK_API_URL}/applications/me/queue-approval",
                     json={
                         "user_id": search_profile.get("user_id"),
                         "job_lead": item["lead"],

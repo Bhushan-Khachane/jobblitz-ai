@@ -217,7 +217,7 @@ async def update_application_status(
     return app
 
 
-@router.get("/approval-queue", response_model=list[ApplicationResponse])
+@router.get("/me/approval-queue", response_model=list[ApplicationResponse])
 async def get_approval_queue(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -431,7 +431,7 @@ class QueueApprovalRequest(BaseModel):
     search_profile_id: str | None = None
 
 
-@router.post("/queue-approval")
+@router.post("/me/queue-approval")
 async def queue_for_approval(
     body: QueueApprovalRequest,
     x_service_token: str = Header(None),
