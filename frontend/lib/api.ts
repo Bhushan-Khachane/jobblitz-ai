@@ -105,6 +105,14 @@ interface Application {
   retry_count: number;
   applied_at: string | null;
   created_at: string;
+  // Enriched fields from approval queue endpoint
+  job_title?: string | null;
+  company?: string | null;
+  location?: string | null;
+  apply_url?: string | null;
+  fit_score?: number | null;
+  gap_notes?: string | null;
+  portal?: string | null;
 }
 
 interface AnalyticsOverview {
@@ -191,6 +199,33 @@ export const jobSearchAPI = {
 
   toggle: (id: string, currentState: boolean) =>
     api.put<JobSearch>(`/job-searches/${id}`, { is_active: !currentState }).then((r) => r.data),
+
+  run: (id: string) =>
+    api.post<{ run_id: string; status: string; message: string }>(
+      `/job-searches/${id}/run`
+    ).then((r) => r.data),
+};
+
+// ── Discovery API ───────────────────────────────────────────────────────────
+
+export const discoveryAPI = {
+  run: (searchProfile: {
+    keywords: string;
+    location?: string;
+    portal?: string;
+    years_experience?: number;
+    job_age_days?: number;
+  }) =>
+    api.post<{ run_id: string; status: string; events: unknown[] }>(
+      "/discovery/run",
+      { search_profile: searchProfile }
+    ).then((r) => r.data),
+
+  jobLeads: (params?: { portal?: string; page?: number; page_size?: number }) =>
+    api.get<{ items: unknown[]; total: number; page: number }>(
+      "/discovery/job-leads",
+      { params }
+    ).then((r) => r.data),
 };
 
 // ── Applications API ────────────────────────────────────────────────────────

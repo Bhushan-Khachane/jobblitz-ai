@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 import json as _json
 from sqlalchemy import func, select
@@ -420,6 +421,9 @@ async def create_application_from_lead(
     }
 
 
+INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "changeme-internal")
+
+
 class QueueApprovalRequest(BaseModel):
     user_id: str
     job_lead: dict
@@ -430,9 +434,13 @@ class QueueApprovalRequest(BaseModel):
 @router.post("/queue-approval")
 async def queue_for_approval(
     body: QueueApprovalRequest,
+    x_service_token: str = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Called by ADK orchestrator to create an Application record pending user approval."""
+    if x_service_token != INTERNAL_SERVICE_TOKEN:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     try:
         user_uuid = uuid.UUID(body.user_id)
     except ValueError:
@@ -459,7 +467,7 @@ async def queue_for_approval(
             company=company,
             location=body.job_lead.get("location"),
             url=url or None,
-            jd_text=body.job_lead.get("description", ""),
+            jd_text=body.job_lead.get("jd_text") or body.job_lead.get("description") or "",
             raw_data=body.job_lead,
         )
         db.add(job_lead)
@@ -481,7 +489,7 @@ async def queue_for_approval(
             title=title,
             company=company,
             location=body.job_lead.get("location"),
-            description=body.job_lead.get("description", ""),
+            description=body.job_lead.get("jd_text") or body.job_lead.get("description") or "",
             apply_url=url or None,
             salary_info=body.job_lead.get("salary", ""),
             status="discovered",

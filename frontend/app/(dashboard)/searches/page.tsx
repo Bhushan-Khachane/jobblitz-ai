@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Plus, Pencil, Trash2, Globe } from "lucide-react";
+import { Plus, Pencil, Trash2, Globe, Loader2, ArrowRight } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ import SearchForm from "@/components/dashboard/SearchForm";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import api, { jobSearchAPI, credentialsAPI } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
+import { useRunStatus } from "@/hooks/useRunStatus";
 
 interface JobSearch {
   id: string;
@@ -49,6 +51,9 @@ export default function SearchesPage() {
   const [hasCredentials, setHasCredentials] = useState(true);
   const [running, setRunning] = useState<string | null>(null);
   const [triggerMsgs, setTriggerMsgs] = useState<Record<string, string>>({});
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+
+  const { runStatus, isPolling } = useRunStatus(activeRunId);
 
   const fetchSearches = useCallback(async () => {
     try {
@@ -135,15 +140,39 @@ export default function SearchesPage() {
   const handleTrigger = async (id: string) => {
     setRunning(id);
     setTriggerMsgs((m) => ({ ...m, [id]: "" }));
+    setActiveRunId(null);
     try {
       const { data } = await api.post(`/job-searches/${id}/run`);
-      const runId = data.run_id || "queued";
-      setTriggerMsgs((m) => ({ ...m, [id]: `✓ Discovery workflow queued! (${typeof runId === "string" ? runId.slice(0, 8) : runId}...)` }));
-      setTimeout(() => setTriggerMsgs((m) => ({ ...m, [id]: "" })), 8000);
+      const runId = data.run_id || null;
+      if (runId) {
+        setActiveRunId(runId);
+        setTriggerMsgs((m) => ({ ...m, [id]: `🔍 Starting discovery...` }));
+      } else {
+        setTriggerMsgs((m) => ({ ...m, [id]: `✓ Discovery workflow queued!` }));
+        setTimeout(() => setTriggerMsgs((m) => ({ ...m, [id]: "" })), 8000);
+      }
     } catch (e: any) {
       setTriggerMsgs((m) => ({ ...m, [id]: e.response?.data?.detail || "Failed to trigger search" }));
     } finally {
       setRunning(null);
+    }
+  };
+
+  const runStatusLabel = () => {
+    if (!runStatus) return "";
+    switch (runStatus.status) {
+      case "queued":
+        return "🔍 Starting discovery...";
+      case "running":
+        return "📋 Running workflow...";
+      case "pending_approval":
+        return `✅ ${runStatus.pending_approvals ?? 0} jobs sent to Approval Queue`;
+      case "skipped":
+        return "No matching jobs found. Try different keywords.";
+      case "failed":
+        return `Discovery failed: ${runStatus.error || "Unknown error"}`;
+      default:
+        return "";
     }
   };
 
@@ -266,10 +295,27 @@ export default function SearchesPage() {
                     </Button>
                   </div>
                 </div>
-                {triggerMsgs[s.id] && (
-                  <p className={`text-xs mt-2 ${triggerMsgs[s.id].startsWith("✓") ? "text-green-400" : "text-red-400"}`}>
-                    {triggerMsgs[s.id]}
-                  </p>
+                {(isPolling || triggerMsgs[s.id]) && (
+                  <div className={`mt-3 text-xs border rounded-lg p-2 ${
+                    runStatus?.status === "pending_approval"
+                      ? "bg-green-500/10 text-green-400 border-green-500/20"
+                      : runStatus?.status === "skipped" || runStatus?.status === "failed"
+                        ? "bg-red-500/10 text-red-400 border-red-500/20"
+                        : "bg-primary-500/10 text-primary-400 border-primary-500/20"
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {isPolling && <Loader2 className="w-3 h-3 animate-spin" />}
+                      <span>{runStatus ? runStatusLabel() : triggerMsgs[s.id]}</span>
+                    </div>
+                    {runStatus?.status === "pending_approval" && (
+                      <Link
+                        href="/approval-queue"
+                        className="inline-flex items-center gap-1 mt-1 text-xs font-medium underline hover:text-green-300"
+                      >
+                        Review now <ArrowRight className="w-3 h-3" />
+                      </Link>
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>

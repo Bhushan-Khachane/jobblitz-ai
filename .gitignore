@@ -12,3 +12,4 @@ screenshots/
 .gstack/
 *.cookies
 *.session
+*.tsbuildinfo

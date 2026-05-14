@@ -98,7 +98,7 @@ async def test_llm():
 class AgentRunRequest(BaseModel):
     agent: str = Field(pattern="^(discovery|screening|planner|apply|verification|status_sync|workflow)$")
     user_id: str | None = None
-    portal: str | None = Field(None, pattern="^(naukri|linkedin|indeed)$")
+    portal: str | None = None
     search_profile: dict | None = None
     job_lead: dict | None = None
     job_lead_ids: list | None = None
@@ -145,7 +145,7 @@ class VerificationRequest(BaseModel):
 
 class StatusSyncRequest(BaseModel):
     user_id: str
-    portal: str = Field(pattern="^(naukri|linkedin|indeed)$")
+    portal: str = Field(pattern="^(naukri|linkedin|indeed|shine|unstop|wellfound|internshala)$")
     session_id: str
 
 

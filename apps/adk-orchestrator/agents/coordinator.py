@@ -1,6 +1,9 @@
 """Coordinator — Root agent that orchestrates the application workflow."""
 
+import os
 import uuid
+
+import httpx
 
 from state.run_tracker import set_run_status, update_run_progress
 
@@ -9,6 +12,8 @@ from agents.discovery_agent import run_discovery
 from agents.planner_agent import run_planner
 from agents.screening_agent import run_screening
 from agents.verification_agent import run_verification
+
+ADK_API_URL = os.getenv("ADK_API_URL", "http://backend:8000/api/v1")
 
 
 async def run_workflow(
@@ -49,9 +54,6 @@ async def run_workflow(
     # ── Step 2: Screen ALL leads ───────────────────────────────────────────────
     pending_approvals = []
     auto_applies = []
-
-    import os, httpx
-    ADK_API_URL = os.getenv("ADK_API_URL", "http://backend:8000/api/v1")
 
     for lead in leads:
         try:
@@ -97,6 +99,7 @@ async def run_workflow(
                         "screening_result": item["screening"],
                         "search_profile_id": search_profile.get("id"),
                     },
+                    headers={"x-service-token": os.getenv("INTERNAL_SERVICE_TOKEN", "changeme-internal")},
                     timeout=5.0,
                 )
         except Exception:

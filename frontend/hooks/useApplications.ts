@@ -15,6 +15,14 @@ export interface Application {
   retry_count: number;
   applied_at: string | null;
   created_at: string;
+  // Enriched fields from approval queue endpoint
+  job_title?: string | null;
+  company?: string | null;
+  location?: string | null;
+  apply_url?: string | null;
+  fit_score?: number | null;
+  gap_notes?: string | null;
+  portal?: string | null;
 }
 
 interface UseApplicationsOpts {

@@ -1,9 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import { Search, Loader2, MapPin, Briefcase, Clock, ExternalLink, CheckCircle, XCircle } from "lucide-react";
-import api from "@/lib/api";
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import {
+  Search,
+  Loader2,
+  MapPin,
+  Briefcase,
+  Clock,
+  ExternalLink,
+  CheckCircle,
+  XCircle,
+  ArrowRight,
+} from "lucide-react";
 import { useRunStatus } from "@/hooks/useRunStatus";
+import { discoveryAPI } from "@/lib/api";
 
 export default function DiscoveryPage() {
   const [keywords, setKeywords] = useState("Python Developer");
@@ -16,7 +27,7 @@ export default function DiscoveryPage() {
   const [leads, setLeads] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const { status: runStatus, data: runData } = useRunStatus(runId);
+  const { runStatus, isPolling } = useRunStatus(runId);
 
   const jobAgeOptions = [
     { value: "1", label: "Last 1 day" },
@@ -25,41 +36,44 @@ export default function DiscoveryPage() {
     { value: "30", label: "Last 30 days" },
   ];
 
+  // Fetch leads when run reaches terminal state
+  useEffect(() => {
+    if (
+      runStatus?.status === "pending_approval" &&
+      leads.length === 0
+    ) {
+      discoveryAPI
+        .jobLeads({ portal, page: 1, page_size: 20 })
+        .then((res) => setLeads(res.items || []))
+        .catch(() => {
+          /* silently fail */
+        });
+    }
+  }, [runStatus?.status, leads.length, portal]);
+
   const handleRunDiscovery = async () => {
     setLoading(true);
     setError(null);
     setLeads([]);
     try {
-      const res = await api.post("/discovery/run", {
-        search_profile: {
-          keywords,
-          location,
-          portal,
-          years_experience: parseInt(experience) || 2,
-          job_age_days: parseInt(jobAge) || 7,
-        },
+      const result = await discoveryAPI.run({
+        keywords,
+        location,
+        portal,
+        years_experience: parseInt(experience) || 2,
+        job_age_days: parseInt(jobAge) || 7,
       });
-      const { run_id } = res.data;
-      setRunId(run_id);
+      setRunId(result.run_id);
     } catch (err: any) {
       setError(err.response?.data?.detail || "Discovery failed");
+    } finally {
       setLoading(false);
-    }
-  };
-
-  // Fetch leads when run completes
-  const fetchLeads = async () => {
-    try {
-      const res = await api.get(`/discovery/job-leads?portal=${portal}&limit=20`);
-      setLeads(res.data.items || []);
-    } catch {
-      // silently fail
     }
   };
 
   const handleApprove = async (leadId: string) => {
     try {
-      await api.post("/applications/plan", { job_lead_id: leadId });
+      await discoveryAPI.jobLeads();
       setLeads((prev) =>
         prev.map((l) => (l.id === leadId ? { ...l, decision: "approve" } : l))
       );
@@ -69,28 +83,26 @@ export default function DiscoveryPage() {
   };
 
   const handleSkip = async (leadId: string) => {
-    try {
-      await api.post("/job-scores/skip", { job_lead_id: leadId });
-      setLeads((prev) =>
-        prev.map((l) => (l.id === leadId ? { ...l, decision: "skip" } : l))
-      );
-    } catch {
-      setLeads((prev) =>
-        prev.map((l) => (l.id === leadId ? { ...l, decision: "skip" } : l))
-      );
-    }
+    setLeads((prev) =>
+      prev.map((l) => (l.id === leadId ? { ...l, decision: "skip" } : l))
+    );
   };
 
   const statusLabel = () => {
-    switch (runStatus) {
-      case "queued": return "Searching for jobs...";
-      case "running": return `Found ${runData?.events?.length || 0} steps so far...`;
-      case "success":
-        if (leads.length === 0) fetchLeads();
-        return `Found ${leads.length} jobs. View results.`;
-      case "failed": return `Discovery failed: ${runData?.error || "Unknown error"}. Try again.`;
-      case "blocked": return "Discovery blocked. Please check your portal connection.";
-      default: return "";
+    if (!runStatus) return "";
+    switch (runStatus.status) {
+      case "queued":
+        return "🔍 Starting discovery...";
+      case "running":
+        return `📋 Running workflow...`;
+      case "pending_approval":
+        return `✅ ${runStatus.pending_approvals ?? 0} jobs sent to Approval Queue`;
+      case "skipped":
+        return "No matching jobs found. Try different keywords.";
+      case "failed":
+        return `Discovery failed: ${runStatus.error || "Unknown error"}`;
+      default:
+        return "";
     }
   };
 
@@ -99,7 +111,9 @@ export default function DiscoveryPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Discovery</h1>
-          <p className="text-muted-foreground mt-1">Find new job leads from connected portals.</p>
+          <p className="text-muted-foreground mt-1">
+            Find new job leads from connected portals.
+          </p>
         </div>
       </div>
 
@@ -152,7 +166,9 @@ export default function DiscoveryPage() {
                 className="w-full pl-9 pr-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary-500 appearance-none"
               >
                 {jobAgeOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -169,10 +185,10 @@ export default function DiscoveryPage() {
           </select>
           <button
             onClick={handleRunDiscovery}
-            disabled={loading || runStatus === "running" || runStatus === "queued"}
+            disabled={loading || isPolling}
             className="px-4 py-2 bg-primary-500 text-primary-foreground rounded-lg hover:bg-primary-600 transition-colors text-sm font-medium disabled:opacity-50 flex items-center gap-2"
           >
-            {loading || runStatus === "queued" || runStatus === "running" ? (
+            {loading || isPolling ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <Search className="w-4 h-4" />
@@ -182,14 +198,29 @@ export default function DiscoveryPage() {
         </div>
       </div>
 
-      {/* Status */}
-      {runStatus !== "idle" && (
-        <div className={`p-3 rounded-lg text-sm ${
-          runStatus === "success" ? "bg-green-500/10 text-green-400 border border-green-500/20" :
-          runStatus === "failed" || runStatus === "blocked" ? "bg-red-500/10 text-red-400 border border-red-500/20" :
-          "bg-primary-500/10 text-primary-400 border border-primary-500/20"
-        }`}>
-          {statusLabel()}
+      {/* Live Status */}
+      {(isPolling || runStatus) && (
+        <div
+          className={`p-3 rounded-lg text-sm border ${
+            runStatus?.status === "pending_approval"
+              ? "bg-green-500/10 text-green-400 border-green-500/20"
+              : runStatus?.status === "skipped" || runStatus?.status === "failed"
+                ? "bg-red-500/10 text-red-400 border-red-500/20"
+                : "bg-primary-500/10 text-primary-400 border-primary-500/20"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {isPolling && <Loader2 className="w-4 h-4 animate-spin" />}
+            <span>{statusLabel()}</span>
+          </div>
+          {runStatus?.status === "pending_approval" && (
+            <Link
+              href="/approval-queue"
+              className="inline-flex items-center gap-1 mt-1 text-xs font-medium underline hover:text-green-300"
+            >
+              Review now <ArrowRight className="w-3 h-3" />
+            </Link>
+          )}
         </div>
       )}
 
@@ -218,7 +249,10 @@ export default function DiscoveryPage() {
               </thead>
               <tbody>
                 {leads.map((lead) => (
-                  <tr key={lead.id} className="border-b border-border/50 hover:bg-white/5">
+                  <tr
+                    key={lead.id}
+                    className="border-b border-border/50 hover:bg-white/5"
+                  >
                     <td className="py-3 px-3">
                       <a
                         href={lead.url}
@@ -230,16 +264,26 @@ export default function DiscoveryPage() {
                         <ExternalLink className="w-3 h-3" />
                       </a>
                     </td>
-                    <td className="py-3 px-3 text-muted-foreground">{lead.company}</td>
-                    <td className="py-3 px-3 text-muted-foreground">{lead.location || "—"}</td>
-                    <td className="py-3 px-3 text-muted-foreground">{lead.experience || "—"}</td>
+                    <td className="py-3 px-3 text-muted-foreground">
+                      {lead.company}
+                    </td>
+                    <td className="py-3 px-3 text-muted-foreground">
+                      {lead.location || "—"}
+                    </td>
+                    <td className="py-3 px-3 text-muted-foreground">
+                      {lead.experience || "—"}
+                    </td>
                     <td className="py-3 px-3">
-                      {lead.fit_score !== null ? (
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          lead.fit_score >= 80 ? "bg-green-500/20 text-green-400" :
-                          lead.fit_score >= 60 ? "bg-amber-500/20 text-amber-400" :
-                          "bg-red-500/20 text-red-400"
-                        }`}>
+                      {lead.fit_score != null ? (
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            lead.fit_score >= 80
+                              ? "bg-green-500/20 text-green-400"
+                              : lead.fit_score >= 60
+                                ? "bg-amber-500/20 text-amber-400"
+                                : "bg-red-500/20 text-red-400"
+                          }`}
+                        >
                           {lead.fit_score}%
                         </span>
                       ) : (
@@ -247,10 +291,18 @@ export default function DiscoveryPage() {
                       )}
                     </td>
                     <td className="py-3 px-3">
-                      {lead.decision === "auto" && <CheckCircle className="w-4 h-4 text-green-400" />}
-                      {lead.decision === "approve" && <CheckCircle className="w-4 h-4 text-amber-400" />}
-                      {lead.decision === "skip" && <XCircle className="w-4 h-4 text-red-400" />}
-                      {!lead.decision && <span className="text-muted-foreground">—</span>}
+                      {lead.decision === "auto" && (
+                        <CheckCircle className="w-4 h-4 text-green-400" />
+                      )}
+                      {lead.decision === "approve" && (
+                        <CheckCircle className="w-4 h-4 text-amber-400" />
+                      )}
+                      {lead.decision === "skip" && (
+                        <XCircle className="w-4 h-4 text-red-400" />
+                      )}
+                      {!lead.decision && (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="py-3 px-3 text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -278,7 +330,7 @@ export default function DiscoveryPage() {
         </div>
       )}
 
-      {leads.length === 0 && !loading && runStatus === "idle" && (
+      {leads.length === 0 && !loading && !isPolling && (
         <div className="p-8 text-center text-muted-foreground border border-dashed border-white/10 rounded-xl">
           No job leads yet. Fill the search form and run discovery.
         </div>
