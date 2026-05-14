@@ -41,12 +41,12 @@ async def login_with_credentials(
     encrypted_password: str,
     user_data_dir: str | Path | None = None,
 ) -> tuple[bool, str]:
-    """Login is handled via Neko cloud browser sessions (see neko_manager.py).
+    """Login is handled via Playwright browser worker sessions.
 
     This function is retained as a stub for interface compatibility only.
     Password-based login is not supported in the zero-password architecture.
     """
-    return False, "Password-based login is not supported — use Neko cloud browser sessions"
+    return False, "Password-based login is not supported — use browser worker sessions"
 
 
 async def _detect_form_fields(page: Page) -> dict[str, str]:

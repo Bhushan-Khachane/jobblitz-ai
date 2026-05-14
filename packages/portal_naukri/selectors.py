@@ -52,7 +52,7 @@ ERROR_SIGNALS = [
 
 
 def get_field_selector(field_name: str) -> str:
-    """Return a gstack-style ref selector for a known Naukri field."""
+    """Return a Playwright selector for a known Naukri field."""
     mapping = {
         "name": "label=Name",
         "email": "label=Email",

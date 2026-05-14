@@ -22,7 +22,7 @@ def build_naukri_search_url(profile: dict) -> str:
 
 def parse_naukri_job_cards(snapshot_text: str) -> list[dict]:
     """
-    Parse job cards from gstack snapshot text output.
+    Parse job cards from Playwright page text output.
     Naukri job cards contain: title, company, experience, salary, location, posted.
     Returns list of dicts with normalized fields.
     """

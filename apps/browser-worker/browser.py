@@ -1,9 +1,11 @@
 from playwright.async_api import async_playwright
-import asyncio, os, threading
+import asyncio, json, os, threading
 
 _pw = None
 _browser = None
 _contexts: dict = {}
+
+SESSION_DIR = os.environ.get("SESSION_DIR", "/data/sessions")
 
 _loop = None
 _thread = None
@@ -145,11 +147,41 @@ def resume(session_id: str = "default") -> str:
 
 
 def state_save(name: str, session_id: str = "default") -> str:
-    return "ok"
+    async def _save():
+        page = await _get_page(session_id)
+        ctx = page.context
+        state = await ctx.storage_state()
+        os.makedirs(SESSION_DIR, exist_ok=True)
+        path = os.path.join(SESSION_DIR, f"{name}.json")
+        with open(path, "w") as f:
+            json.dump(state, f)
+        return path
+    return _run_sync(_save())
 
 
 def state_load(name: str, session_id: str = "default") -> str:
-    return "ok"
+    async def _load():
+        global _contexts
+        path = os.path.join(SESSION_DIR, f"{name}.json")
+        if not os.path.exists(path):
+            return "missing"
+        with open(path) as f:
+            state = json.load(f)
+        # close old context if exists
+        if session_id in _contexts:
+            try:
+                await _contexts[session_id].close()
+            except Exception:
+                pass
+            del _contexts[session_id]
+        _contexts[session_id] = await _browser.new_context(
+            storage_state=state,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0.0.0 Safari/537.36"
+        )
+        return "ok"
+    return _run_sync(_load())
 
 
 def cookie_import_file(cookie_file: str, session_id: str = "default") -> str:

@@ -33,29 +33,6 @@ async def run_discovery(search_profile: dict, session_id: str) -> dict:
 
     print(f"[discovery] {len(jobs)} jobs from {sources} for search: {keywords} in {location}")
 
-    # Optional: use LLM to clean/normalize ambiguous fields only
-    if jobs:
-        system = "You are a data normalizer. Return only valid JSON array, no explanation."
-        prompt = f"""
-These are job listings from public APIs (Adzuna, Jooble, Remotive).
-Clean and normalize the data. Return valid JSON array.
-Each item must have: title, company, location, description, url, salary, source, posted_at.
-
-Raw data:
-{json.dumps(jobs[:20], indent=2)}
-"""
-        try:
-            normalized = await async_generate(prompt, system=system, use_pro=False)
-            if "```json" in normalized:
-                normalized = normalized.split("```json")[1].split("```")[0].strip()
-            elif "```" in normalized:
-                normalized = normalized.split("```")[1].split("```")[0].strip()
-            cleaned = json.loads(normalized)
-            if isinstance(cleaned, list):
-                jobs = cleaned
-        except Exception:
-            pass  # use raw data if LLM fails
-
     # Store job leads via backend API
     for lead in jobs:
         lead["portal"] = portal

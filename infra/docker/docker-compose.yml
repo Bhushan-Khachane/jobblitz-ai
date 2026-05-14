@@ -83,14 +83,6 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  neko:
-    build:
-      context: ../../docker/neko
-      dockerfile: Dockerfile
-    image: jobblitz-neko:latest
-    profiles:
-      - neko-build
-    command: ["echo", "Neko image ready"]
 
   adk-orchestrator:
     build: ../../apps/adk-orchestrator
