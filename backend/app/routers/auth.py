@@ -48,7 +48,7 @@ def _create_access_token(user_id: uuid.UUID) -> str:
 def _create_refresh_token(user_id: uuid.UUID) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     return jwt.encode(
-        {"sub": str(user_id), "type": "refresh", "exp": expire},
+        {"sub": str(user_id), "type": "refresh", "exp": expire, "jti": str(uuid.uuid4())},
         settings.SECRET_KEY,
         algorithm=settings.ALGORITHM,
     )
@@ -98,11 +98,23 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
+    jti = payload.get("jti")
+    if jti:
+        redis = _get_redis()
+        revoked = await redis.get(f"rt:used:{jti}")
+        if revoked:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has been revoked")
+
     user_id = payload.get("sub")
     result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+
+    # Revoke the used refresh token
+    if jti:
+        redis = _get_redis()
+        await redis.setex(f"rt:used:{jti}", settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400, "1")
 
     return TokenResponse(
         access_token=_create_access_token(user.id),
@@ -117,8 +129,14 @@ async def me(user: User = Depends(get_current_user)):
 
 # ── Password reset ───────────────────────────────────────────────────────────
 
-async def _get_redis() -> aioredis.Redis:
-    return aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+_redis_client: aioredis.Redis | None = None
+
+
+def _get_redis() -> aioredis.Redis:
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+    return _redis_client
 
 
 @router.post("/forgot-password", status_code=status.HTTP_200_OK)

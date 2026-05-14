@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user, rate_limiter
+from app.dependencies import get_current_user, get_current_user_or_service, rate_limiter
 from app.models import Application, Credential, JobLead, JobListing, Profile, Resume, User
 from app.schemas import ApplicationResponse, ApplicationStatusUpdate, ApplyRequest
 from pydantic import BaseModel
@@ -43,6 +43,16 @@ def _profile_to_dict(profile: Profile | None, user: User) -> dict:
 
 async def apply_to_job_with_agent(**kwargs):
     yield {"event": "error", "result": "Browser agent not yet implemented"}
+
+
+_arq_pool = None
+
+
+async def _get_arq_pool():
+    global _arq_pool
+    if _arq_pool is None:
+        _arq_pool = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    return _arq_pool
 
 
 @router.post("/apply/{job_listing_id}", response_model=ApplicationResponse, status_code=status.HTTP_201_CREATED)
@@ -151,14 +161,13 @@ async def apply_to_job_endpoint(
     await db.refresh(application)
 
     # Dispatch background task via ARQ
-    redis_pool = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    redis_pool = await _get_arq_pool()
     await redis_pool.enqueue_job(
         "auto_apply",
         user_id=str(user.id),
         job_listing_id=str(job_listing_id),
         resume_id=str(resume_id),
     )
-    await redis_pool.close()
 
     return application
 
@@ -296,14 +305,13 @@ async def approve_application(
     await db.commit()
 
     # Dispatch the auto-apply task via ARQ
-    redis_pool = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    redis_pool = await _get_arq_pool()
     await redis_pool.enqueue_job(
         "auto_apply",
         user_id=str(user.id),
         job_listing_id=str(app.job_listing_id),
         resume_id=str(app.resume_id) if app.resume_id else None,
     )
-    await redis_pool.close()
 
     return {"message": "Application approved and queued", "application_id": str(app.id)}
 
@@ -421,9 +429,6 @@ async def create_application_from_lead(
     }
 
 
-INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "jobblitz-internal-secret")
-
-
 class QueueApprovalRequest(BaseModel):
     user_id: str
     job_lead: dict
@@ -434,11 +439,12 @@ class QueueApprovalRequest(BaseModel):
 @router.post("/me/queue-approval")
 async def queue_for_approval(
     body: QueueApprovalRequest,
-    x_service_token: str = Header(None),
+    user: User = Depends(get_current_user_or_service),
     db: AsyncSession = Depends(get_db),
 ):
     """Called by ADK orchestrator to create an Application record pending user approval."""
-    if x_service_token != INTERNAL_SERVICE_TOKEN:
+    from app.dependencies import _SystemUser
+    if not isinstance(user, _SystemUser):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
@@ -546,8 +552,6 @@ async def generate_cover_letter(
     """
     import os
     import httpx
-    import redis.asyncio as redis
-
     # Load application with job listing
     result = await db.execute(
         select(Application)
@@ -692,13 +696,17 @@ async def stream_apply(
         if resume:
             resume_path = resume.file_path
 
+    # Decrypt password before passing to browser agent
+    from app.utils.encryption import decrypt
+    password_plain = decrypt(credential.encrypted_password)
+
     async def event_stream():
         try:
             async for event in apply_to_job_with_agent(
                 user_id=user.id,
                 platform=listing.platform,
                 username=credential.username,
-                encrypted_password=credential.encrypted_password,
+                encrypted_password=password_plain,
                 job_url=listing.apply_url or "",
                 profile=profile_dict,
                 resume_path=resume_path,

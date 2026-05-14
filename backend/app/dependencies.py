@@ -52,7 +52,7 @@ async def get_current_user(
 
 # ── Internal service auth (ADK orchestrator, browser-worker) ──────────────────
 
-INTERNAL_API_KEY = getattr(settings, "INTERNAL_API_KEY", "jobblitz-internal-dev-key")
+INTERNAL_API_KEY = settings.INTERNAL_API_KEY or "jobblitz-internal-dev-key"
 
 
 from fastapi import Header as FastAPIHeader

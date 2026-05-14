@@ -107,7 +107,8 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Internal-Api-Key", "X-Requested-With", "Origin"],
+    expose_headers=["X-Total-Count", "X-Page", "X-Page-Size"],
 )
 
 # ── Health endpoint ──────────────────────────────────────────────────────────

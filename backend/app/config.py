@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     MIN_MATCH_SCORE_TO_SAVE: float = 0.2
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
 
+    # ── Internal service auth ─────────────────────────────────────────────────
+    INTERNAL_API_KEY: str = ""
+
     # ── Supabase Storage ────────────────────────────────────────────────────
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_ROLE_KEY: str = ""

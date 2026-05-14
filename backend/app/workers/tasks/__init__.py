@@ -408,34 +408,28 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
 
 async def retry_failed(ctx: dict) -> dict:
     """Re-enqueue failed applications that haven't hit max retries."""
-    from arq import create_pool
-    from arq.connections import RedisSettings
-
     retried = 0
-    redis_pool = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
-    try:
-        async with _async_session() as db:
-            result = await db.execute(
-                select(Application).where(
-                    Application.status == "failed",
-                    Application.retry_count < 3,
-                )
+    redis_pool = ctx["redis"]
+    async with _async_session() as db:
+        result = await db.execute(
+            select(Application).where(
+                Application.status == "failed",
+                Application.retry_count < 3,
             )
-            apps = result.scalars().all()
+        )
+        apps = result.scalars().all()
 
-            for app in apps:
-                await redis_pool.enqueue_job(
-                    "auto_apply",
-                    user_id=str(app.user_id),
-                    job_listing_id=str(app.job_listing_id),
-                    resume_id=str(app.resume_id) if app.resume_id else None,
-                )
-                app.retry_count += 1
-                retried += 1
+        for app in apps:
+            await redis_pool.enqueue_job(
+                "auto_apply",
+                user_id=str(app.user_id),
+                job_listing_id=str(app.job_listing_id),
+                resume_id=str(app.resume_id) if app.resume_id else None,
+            )
+            app.retry_count += 1
+            retried += 1
 
-            await db.commit()
-    finally:
-        await redis_pool.close()
+        await db.commit()
 
     return {"retried": retried}
 
@@ -448,28 +442,21 @@ async def notify_user(ctx: dict, user_id: str, message: str) -> dict:
 async def cleanup_old_listings(ctx: dict) -> dict:
     """Delete job listings older than 30 days that were never applied to."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
-    deleted = 0
     async with _async_session() as db:
         try:
+            from sqlalchemy import delete
             result = await db.execute(
-                select(JobListing).where(
+                delete(JobListing).where(
                     JobListing.created_at < cutoff,
                     JobListing.status == "discovered",
                 )
             )
-            old_listings = result.scalars().all()
-
-            for listing in old_listings:
-                await db.delete(listing)
-                deleted += 1
-
             await db.commit()
+            return {"deleted": result.rowcount}
         except Exception as e:
             await db.rollback()
             logger.error(f"Cleanup old listings failed: {e}", exc_info=True)
             raise
-
-    return {"deleted": deleted}
 
 
 async def check_application_statuses(ctx: dict) -> dict:
@@ -548,12 +535,7 @@ async def batch_auto_apply(ctx: dict) -> dict:
                 str(row.user_id): row.cnt for row in counts_result
             }
 
-            # We need the ARQ pool to enqueue jobs
-            from arq import create_pool
-            from arq.connections import RedisSettings
-
-            redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
-            redis_pool = await create_pool(redis_settings)
+            redis_pool = ctx["redis"]
 
             for listing in listings:
                 uid = str(listing.user_id)
@@ -642,7 +624,6 @@ async def batch_auto_apply(ctx: dict) -> dict:
                 dispatched += 1
 
             await db.commit()
-            await redis_pool.close()
 
         except Exception as e:
             logger.error(f"Batch auto-apply dispatch failed: {e}", exc_info=True)
