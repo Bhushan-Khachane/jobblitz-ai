@@ -189,7 +189,7 @@ export const jobSearchAPI = {
   list: () => api.get<JobSearch[]>("/job-searches/").then((r) => r.data),
 
   create: (data: Omit<JobSearch, "id" | "created_at" | "last_run_at" | "is_active">) =>
-    api.post<JobSearch>("/job-searches", data).then((r) => r.data),
+    api.post<JobSearch>("/job-searches/", data).then((r) => r.data),
 
   update: (id: string, data: Partial<JobSearch>) =>
     api.put<JobSearch>(`/job-searches/${id}`, data).then((r) => r.data),

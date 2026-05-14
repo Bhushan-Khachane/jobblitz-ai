@@ -38,31 +38,32 @@ async def dispatch_workflow(
     search_profile: dict,
     user_profile: dict,
     resume_text: str = "",
+    pre_run_id: str | None = None,
 ) -> dict:
     """Dispatch the full workflow (discovery → screening → approval queue)."""
     import logging
     async with httpx.AsyncClient(timeout=120.0) as client:
         try:
-            resp = await client.post(
-                f"{ADK_URL}/agent/run",
-                json={
-                    "agent": "workflow",
-                    "user_id": str(user_id),
-                    "portal": portal,
-                    "search_profile": search_profile,
-                    "user_profile": user_profile,
-                    "resume_text": resume_text,
-                    "session_id": f"{user_id}_{portal}",
-                },
-            )
+            payload = {
+                "agent": "workflow",
+                "user_id": str(user_id),
+                "portal": portal,
+                "search_profile": search_profile,
+                "user_profile": user_profile,
+                "resume_text": resume_text,
+                "session_id": f"{user_id}_{portal}",
+            }
+            if pre_run_id:
+                payload["run_id"] = pre_run_id
+            resp = await client.post(f"{ADK_URL}/agent/run", json=payload)
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPStatusError as e:
             logging.error(f"dispatch_workflow failed: {e.response.status_code} {e.response.text}")
-            return {"run_id": None, "status": "error", "error": str(e)}
+            return {"run_id": pre_run_id, "status": "error", "error": str(e)}
         except Exception as e:
             logging.error(f"dispatch_workflow exception: {e}")
-            return {"run_id": None, "status": "error", "error": str(e)}
+            return {"run_id": pre_run_id, "status": "error", "error": str(e)}
 
 
 async def dispatch_scoring(user_id: str, job_lead_ids: list[str]) -> dict:

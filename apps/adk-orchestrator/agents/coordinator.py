@@ -88,10 +88,12 @@ async def run_workflow(
     })
 
     # POST all pending_approvals to backend queue-approval endpoint
+    import logging
+    queued_count = 0
     for item in pending_approvals:
         try:
-            async with httpx.AsyncClient() as http:
-                await http.post(
+            async with httpx.AsyncClient(timeout=10.0) as http:
+                resp = await http.post(
                     f"{ADK_API_URL}/applications/me/queue-approval",
                     json={
                         "user_id": search_profile.get("user_id"),
@@ -100,10 +102,14 @@ async def run_workflow(
                         "search_profile_id": search_profile.get("id"),
                     },
                     headers={"x-service-token": os.getenv("INTERNAL_SERVICE_TOKEN", "changeme-internal")},
-                    timeout=5.0,
+                    timeout=10.0,
                 )
-        except Exception:
-            pass  # non-fatal
+                resp.raise_for_status()
+                queued_count += 1
+        except Exception as e:
+            logging.error(f"[coordinator] queue-approval failed: {e}")
+
+    events.append({"step": "queue_approval", "queued": queued_count, "total": len(pending_approvals)})
 
     # For now we don't auto-apply — everything goes to approval queue
     # (auto mode is wired but gated behind pro plan)

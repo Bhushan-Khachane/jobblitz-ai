@@ -98,7 +98,10 @@ async def run_search(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Run a saved JobSearch via the full discovery workflow."""
+    """Run a saved JobSearch via the full discovery workflow - returns immediately."""
+    import asyncio
+    import httpx
+    import os
     from app.models import Profile, Resume
     from app.services.agent_dispatcher import dispatch_workflow
 
@@ -144,20 +147,34 @@ async def run_search(
         "user_id": str(user.id),
     }
 
-    adk_result = await dispatch_workflow(
+    # Pre-generate run_id and register it as "queued" via ADK before dispatching
+    # so the frontend can start polling immediately
+    adk_url = os.getenv("ADK_ORCHESTRATOR_URL", "http://adk-orchestrator:8001")
+    pre_run_id = str(uuid.uuid4())
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            await client.post(
+                f"{adk_url}/agent/run/pre-register",
+                json={"run_id": pre_run_id, "agent": "workflow"},
+            )
+    except Exception:
+        pass  # non-fatal, we'll still dispatch
+
+    # Fire-and-forget: dispatch without waiting
+    asyncio.create_task(dispatch_workflow(
         str(user.id),
         search.platform,
         adk_search_profile,
         user_profile,
         resume_text,
-    )
-    run_id = adk_result.get("run_id")
+        pre_run_id=pre_run_id,
+    ))
 
     search.last_run_at = datetime.now(timezone.utc)
     await db.commit()
 
     return {
-        "run_id": run_id,
+        "run_id": pre_run_id,
         "status": "queued",
         "message": f"Discovery workflow queued for search '{search.name}'",
     }

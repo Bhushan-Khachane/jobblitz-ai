@@ -179,10 +179,20 @@ async def _execute_agent(payload: AgentRunRequest) -> dict:
     return result
 
 
+@app.post("/agent/run/pre-register")
+async def pre_register_run(body: dict):
+    """Pre-seed a run_id as 'queued' so polling can start immediately."""
+    run_id = body.get("run_id")
+    agent = body.get("agent", "workflow")
+    if run_id:
+        await set_run_status(run_id, "queued", {"agent": agent})
+    return {"run_id": run_id, "status": "queued"}
+
+
 @app.post("/agent/run")
 async def run_agent_endpoint(body: AgentRunRequest, background_tasks: BackgroundTasks):
     """Queue an agent run and return immediately with run_id."""
-    run_id = str(uuid.uuid4())
+    run_id = body.run_id or str(uuid.uuid4())
     await set_run_status(run_id, "queued", {"agent": body.agent})
     body_dict = body.model_copy(update={"run_id": run_id})
     background_tasks.add_task(_execute_agent, body_dict)

@@ -55,6 +55,20 @@ export default function SearchesPage() {
 
   const { runStatus, isPolling } = useRunStatus(activeRunId);
 
+  // Auto-clear stale run state after 3 minutes
+  useEffect(() => {
+    if (!activeRunId) return;
+    const timeout = setTimeout(() => {
+      setActiveRunId(null);
+      setTriggerMsgs((m) => {
+        const updated = { ...m };
+        Object.keys(updated).forEach((k) => { updated[k] = ""; });
+        return updated;
+      });
+    }, 3 * 60 * 1000);
+    return () => clearTimeout(timeout);
+  }, [activeRunId]);
+
   const fetchSearches = useCallback(async () => {
     try {
       const data = await jobSearchAPI.list();
@@ -97,8 +111,7 @@ export default function SearchesPage() {
       setEditItem(null);
       await fetchSearches();
     } catch (e: any) {
-      console.error(e);
-      setError(e.response?.data?.detail || "Failed to save search");
+      setError(e.response?.data?.detail || e.message || "Failed to save search");
     } finally {
       setSaving(false);
     }

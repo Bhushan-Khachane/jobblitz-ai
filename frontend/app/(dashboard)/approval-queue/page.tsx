@@ -28,6 +28,12 @@ export default function ApprovalQueuePage() {
   const [acting, setActing] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(refetch, 30000);
+    return () => clearInterval(interval);
+  }, [refetch]);
+
   const handleApprove = async (id: string) => {
     setActing(id);
     try {
@@ -72,9 +78,14 @@ export default function ApprovalQueuePage() {
             Review and approve job applications before they are submitted
           </p>
         </div>
-        <Badge variant="secondary" className="text-sm">
-          {items.length} pending
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={refetch}>
+            Refresh
+          </Button>
+          <Badge variant="secondary" className="text-sm">
+            {items.length} pending
+          </Badge>
+        </div>
       </div>
 
       {items.length === 0 ? (
