@@ -308,6 +308,187 @@ async def reject_application(
     return {"message": "Application rejected", "application_id": str(app.id)}
 
 
+@router.post("/from-lead/{job_lead_id}", response_model=dict)
+async def create_application_from_lead(
+    job_lead_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create an application from a job lead.
+
+    Finds or creates a JobListing from the JobLead, then creates an Application.
+    Returns the application_id for use with mark-manual and generate-cover-letter.
+    """
+    from app.models import JobLead
+
+    # Get the job lead
+    lead_result = await db.execute(
+        select(JobLead).where(JobLead.id == job_lead_id, JobLead.user_id == user.id)
+    )
+    lead = lead_result.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Job lead not found")
+
+    # Find or create a job listing
+    listing_result = await db.execute(
+        select(JobListing).where(
+            JobListing.user_id == user.id,
+            JobListing.external_job_id == lead.normalized_hash,
+        )
+    )
+    listing = listing_result.scalar_one_or_none()
+    if not listing:
+        listing = JobListing(
+            user_id=user.id,
+            platform=lead.portal,
+            external_job_id=lead.normalized_hash,
+            title=lead.title,
+            company=lead.company,
+            location=lead.location,
+            description=lead.jd_text or "",
+            apply_url=lead.url,
+            salary_info=lead.salary or "",
+            status="discovered",
+            match_score=0.5,
+        )
+        db.add(listing)
+        await db.flush()
+
+    # Check for existing application
+    existing = await db.execute(
+        select(Application).where(
+            Application.user_id == user.id,
+            Application.job_listing_id == listing.id,
+        )
+    )
+    app = existing.scalar_one_or_none()
+    if not app:
+        # Get default resume
+        res_result = await db.execute(
+            select(Resume).where(Resume.user_id == user.id, Resume.is_default == True)
+        )
+        resume = res_result.scalar_one_or_none()
+
+        app = Application(
+            user_id=user.id,
+            job_listing_id=listing.id,
+            resume_id=resume.id if resume else None,
+            status="pending",
+            idempotency_key=f"apply:{user.id}:{listing.id}",
+        )
+        db.add(app)
+        await db.flush()
+
+    await db.commit()
+    await db.refresh(app)
+
+    return {
+        "application_id": str(app.id),
+        "job_listing_id": str(listing.id),
+        "status": app.status,
+    }
+
+
+@router.post("/{application_id}/generate-cover-letter")
+async def generate_cover_letter(
+    application_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a cover letter and screening answers for an application.
+
+    Loads the application, job listing, and user profile, then calls the
+    ADK orchestrator cover-letter task. Caches in Redis for 7 days.
+    """
+    import os
+    import httpx
+    import redis.asyncio as redis
+
+    # Load application with job listing
+    result = await db.execute(
+        select(Application)
+        .where(Application.id == application_id, Application.user_id == user.id)
+    )
+    app = result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    listing_result = await db.execute(
+        select(JobListing).where(JobListing.id == app.job_listing_id)
+    )
+    listing = listing_result.scalar_one_or_none()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Job listing not found")
+
+    # Load profile
+    prof_result = await db.execute(select(Profile).where(Profile.user_id == user.id))
+    profile = prof_result.scalar_one_or_none()
+    profile_dict = _profile_to_dict(profile, user)
+    profile_dict["skills"] = profile.skills if profile else []
+    profile_dict["headline"] = profile.headline if profile else ""
+    profile_dict["summary"] = profile.summary if profile else ""
+    profile_dict["experience"] = profile.experience if profile else {}
+    profile_dict["notice_period_days"] = profile.notice_period_days if profile else 30
+
+    job = {
+        "title": listing.title,
+        "company": listing.company,
+        "location": listing.location,
+        "description": listing.description or "",
+        "url": listing.apply_url or "",
+        "salary": listing.salary_info or "",
+    }
+
+    # Call ADK orchestrator
+    adk_url = os.getenv("ADK_ORCHESTRATOR_URL", "http://adk-orchestrator:8001")
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{adk_url}/tasks/cover-letter",
+                json={
+                    "user_id": str(user.id),
+                    "job": job,
+                    "profile": profile_dict,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Cover letter service error: {e}")
+
+    # Cache in Redis
+    redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    try:
+        r = redis.from_url(redis_url, decode_responses=True)
+        cache_key = f"cover_letter:{user.id}:{application_id}"
+        await r.setex(cache_key, 60 * 60 * 24 * 7, _json.dumps(data))
+        await r.close()
+    except Exception:
+        pass
+
+    return data
+
+
+@router.post("/{application_id}/mark-manual")
+async def mark_manual_apply(
+    application_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark an application as manually applied by the user."""
+    result = await db.execute(
+        select(Application).where(Application.id == application_id, Application.user_id == user.id)
+    )
+    app = result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    app.status = "submitted"
+    await db.commit()
+    await db.refresh(app)
+    return {"status": "ok", "message": "Marked as manually applied"}
+
+
 @router.get("/{job_listing_id}/stream-apply")
 async def stream_apply(
     job_listing_id: uuid.UUID,

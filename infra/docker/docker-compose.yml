@@ -92,7 +92,6 @@ services:
       - neko-build
     command: ["echo", "Neko image ready"]
 
-  # ── NEW: Intelligence Plane ────────────────────────────────────────────────
   adk-orchestrator:
     build: ../../apps/adk-orchestrator
     ports:
@@ -104,6 +103,10 @@ services:
       - ADK_API_URL=http://backend:8000/api/v1
       - BACKEND_API_URL=http://backend:8000/api/v1
       - INTERNAL_API_KEY=jobblitz-internal-dev-key
+      - REDIS_URL=redis://redis:6379/0
+      - ADZUNA_APP_ID=${ADZUNA_APP_ID}
+      - ADZUNA_APP_KEY=${ADZUNA_APP_KEY}
+      - JOOBLE_API_KEY=${JOOBLE_API_KEY}
       - PYTHONPATH=/app/packages
     volumes:
       - ../../packages:/app/packages:ro
@@ -113,19 +116,15 @@ services:
       - postgres
     restart: unless-stopped
 
-  # ── NEW: Execution Plane ─────────────────────────────────────────────────
   browser-worker:
     build: ../../apps/browser-worker
     ports:
       - "8002:8002"
-    env_file:
-      - ../../backend/.env
     environment:
-      - BROWSE_BIN=/opt/gstack/browse/dist/browse
-      - DISPLAY=${DISPLAY:-:0}
+      - HEADLESS=true
+      - SESSION_DIR=/data/sessions
     volumes:
-      - gstack-sessions:/root/.gstack
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - sessions:/data/sessions
     depends_on:
       - backend
       - redis
@@ -143,4 +142,4 @@ volumes:
   redisdata:
   uploads_data:
   screenshots_data:
-  gstack-sessions:
+  sessions:

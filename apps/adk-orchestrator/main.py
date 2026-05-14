@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from agents.apply_agent import run_apply
 from agents.coordinator import run_workflow
+from agents.cover_letter_agent import generate as generate_cover_letter
 from agents.discovery_agent import run_discovery
 from agents.planner_agent import run_planner
 from agents.screening_agent import run_screening
@@ -45,6 +46,42 @@ app = FastAPI(
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": "adk-orchestrator"}
+
+
+# ── Cover Letter Task ────────────────────────────────────────────────────────
+
+class CoverLetterRequest(BaseModel):
+    user_id: str
+    job: dict
+    profile: dict
+
+
+@app.post("/tasks/cover-letter")
+async def cover_letter_endpoint(body: CoverLetterRequest):
+    """Generate a cover letter and screening answers for a job."""
+    result = await generate_cover_letter(body.user_id, body.job, body.profile)
+    return result
+
+
+# ── Discovery Task ───────────────────────────────────────────────────────────
+
+class DiscoveryTaskRequest(BaseModel):
+    search_id: str
+    keywords: str
+    location: str = "India"
+
+
+@app.post("/tasks/discover")
+async def discovery_task_endpoint(body: DiscoveryTaskRequest):
+    """Run discovery via public job APIs."""
+    search_profile = {
+        "id": body.search_id,
+        "keywords": body.keywords,
+        "location": body.location,
+        "portal": "naukri",
+    }
+    result = await run_discovery(search_profile, "default")
+    return {"status": "ok", "result": result}
 
 
 @app.get("/agent/test-gemini")

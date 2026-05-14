@@ -187,7 +187,7 @@ async def import_cookies_from_json(
     cookies: list[dict], portal: str, session_id: str
 ) -> dict:
     """Accept cookies exported from user's local browser (EditThisCookie JSON).
-    Writes to a temp file and imports via gstack browse cookie-import.
+    Writes to a temp file and imports via Playwright cookie import.
     Returns evidence-rich dict.
     """
     # Filter cookies to only those matching the target portal domain

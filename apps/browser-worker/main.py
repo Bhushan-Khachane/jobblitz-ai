@@ -1,6 +1,6 @@
 """Browser Worker — Execution Plane FastAPI service.
 
-Wraps gstack browse binary calls as HTTP endpoints.
+Wraps Playwright browser automation as HTTP endpoints.
 """
 
 from fastapi import FastAPI, HTTPException
@@ -48,7 +48,7 @@ async def browser_status():
         output = status()
         return {
             "status": "running",
-            "binary": os.getenv("BROWSE_BIN", "unknown"),
+            "binary": "playwright-chromium",
             "raw": output
         }
     except Exception as e:

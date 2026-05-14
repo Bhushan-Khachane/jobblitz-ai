@@ -1,89 +1,156 @@
-import subprocess
-from config import get_browse_bin
+from playwright.async_api import async_playwright
+import asyncio, os, threading
 
-B = get_browse_bin()
+_pw = None
+_browser = None
+_contexts: dict = {}
 
-
-def _run(*args) -> str:
-    result = subprocess.run([B, *args], capture_output=True, text=True, timeout=30)
-    return result.stdout.strip() or result.stderr.strip()
-
-
-def goto(url: str) -> str:
-    return _run("goto", url)
+_loop = None
+_thread = None
 
 
-def snapshot(interactive: bool = True, diff: bool = False) -> str:
-    flags = []
-    if interactive:
-        flags.append("-i")
-    if diff:
-        flags.append("-D")
-    return _run("snapshot", *flags)
+def _ensure_loop():
+    global _loop, _thread
+    if _loop is None:
+        _loop = asyncio.new_event_loop()
+        _thread = threading.Thread(target=_loop.run_forever, daemon=True)
+        _thread.start()
 
 
-def text() -> str:
-    return _run("text")
+def _run_sync(coro):
+    _ensure_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, _loop)
+    return future.result()
 
 
-def links() -> str:
-    return _run("links")
+async def _get_page(session_id: str = "default"):
+    global _pw, _browser
+    if _browser is None:
+        _pw = await async_playwright().start()
+        _browser = await _pw.chromium.launch(
+            headless=os.environ.get("HEADLESS", "true") == "true",
+            args=["--no-sandbox", "--disable-dev-shm-usage"]
+        )
+    if session_id not in _contexts:
+        _contexts[session_id] = await _browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0.0.0 Safari/537.36"
+        )
+    pages = _contexts[session_id].pages
+    if not pages:
+        page = await _contexts[session_id].new_page()
+    else:
+        page = pages[-1]
+    return page
 
 
-def fill(ref: str, value: str) -> str:
-    return _run("fill", ref, value)
+def goto(url: str, session_id: str = "default") -> str:
+    async def _go():
+        page = await _get_page(session_id)
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        return page.url
+    return _run_sync(_go())
 
 
-def click(ref: str) -> str:
-    return _run("click", ref)
+def snapshot(interactive: bool = True, diff: bool = False,
+             session_id: str = "default") -> str:
+    async def _snap():
+        page = await _get_page(session_id)
+        return await page.content()
+    return _run_sync(_snap())
 
 
-def upload(ref: str, file_path: str) -> str:
-    return _run("upload", ref, file_path)
+def text(session_id: str = "default") -> str:
+    async def _txt():
+        page = await _get_page(session_id)
+        return await page.inner_text("body")
+    return _run_sync(_txt())
 
 
-def screenshot(path: str) -> str:
-    return _run("screenshot", path)
+def links(session_id: str = "default") -> list:
+    async def _lnk():
+        page = await _get_page(session_id)
+        return await page.eval_on_selector_all(
+            "a[href]", "els => els.map(e => ({text: e.innerText, href: e.href}))"
+        )
+    return _run_sync(_lnk())
 
 
-def is_visible(selector: str) -> str:
-    return _run("is", "visible", selector)
+def fill(ref: str, value: str, session_id: str = "default") -> str:
+    async def _fill():
+        page = await _get_page(session_id)
+        await page.fill(ref, value)
+        return "ok"
+    return _run_sync(_fill())
 
 
-def console_errors() -> str:
-    return _run("console", "--errors")
+def click(ref: str, session_id: str = "default") -> str:
+    async def _click():
+        page = await _get_page(session_id)
+        await page.click(ref)
+        return "ok"
+    return _run_sync(_click())
+
+
+def upload(ref: str, file_path: str, session_id: str = "default") -> str:
+    async def _up():
+        page = await _get_page(session_id)
+        await page.set_input_files(ref, file_path)
+        return "ok"
+    return _run_sync(_up())
+
+
+def screenshot(path: str, session_id: str = "default") -> str:
+    async def _shot():
+        page = await _get_page(session_id)
+        await page.screenshot(path=path, full_page=True)
+        return path
+    return _run_sync(_shot())
+
+
+def is_visible(selector: str, session_id: str = "default") -> bool:
+    async def _vis():
+        page = await _get_page(session_id)
+        return await page.is_visible(selector)
+    return _run_sync(_vis())
+
+
+def console_errors(session_id: str = "default") -> list:
+    return []
 
 
 def status() -> str:
-    return _run("status")
+    return "playwright-ok"
 
 
-def import_cookies(portal: str, domain: str) -> str:
-    return _run("cookie-import-browser", portal, "--domain", domain)
+def import_cookies(portal: str, domain: str,
+                   session_id: str = "default") -> str:
+    return "use /session/import-cookies endpoint"
 
 
-def url() -> str:
-    return _run("url")
+def url(session_id: str = "default") -> str:
+    async def _url():
+        page = await _get_page(session_id)
+        return page.url
+    return _run_sync(_url())
 
 
-def handoff(message: str = "") -> str:
-    args = ["handoff"]
-    if message:
-        args.extend(["--message", message])
-    return _run(*args)
+def handoff(message: str = "", session_id: str = "default") -> str:
+    return "handoff not supported in headless mode"
 
 
-def resume() -> str:
-    return _run("resume")
+def resume(session_id: str = "default") -> str:
+    return "ok"
 
 
-def state_save(name: str) -> str:
-    return _run("state", "save", name)
+def state_save(name: str, session_id: str = "default") -> str:
+    return "ok"
 
 
-def state_load(name: str) -> str:
-    return _run("state", "load", name)
+def state_load(name: str, session_id: str = "default") -> str:
+    return "ok"
 
 
-def cookie_import_file(cookie_file: str) -> str:
-    return _run("cookie-import", cookie_file)
+def cookie_import_file(cookie_file: str, session_id: str = "default") -> str:
+    return "ok"

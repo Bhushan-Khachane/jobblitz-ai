@@ -40,12 +40,33 @@ async def run_scoring(
     }
 
 
-@router.get("/job-scores", response_model=list[JobScoreResponse])
+@router.get("/job-scores", response_model=list[dict])
 async def list_job_scores(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy import select as sa_select
     result = await db.execute(
-        select(JobScore).where(JobScore.user_id == user.id).order_by(JobScore.scored_at.desc())
+        sa_select(JobScore, JobLead)
+        .join(JobLead, JobScore.job_lead_id == JobLead.id)
+        .where(JobScore.user_id == user.id)
+        .order_by(JobScore.scored_at.desc())
     )
-    return result.scalars().all()
+    rows = result.all()
+    out = []
+    for s, lead in rows:
+        out.append({
+            "id": str(s.id),
+            "job_lead_id": str(s.job_lead_id),
+            "fit_score": s.fit_score,
+            "must_have_match": s.must_have_match,
+            "gap_notes": s.gap_notes,
+            "decision": s.decision,
+            "scored_at": s.scored_at.isoformat() if s.scored_at else None,
+            "job_title": lead.title if lead else "Job Lead",
+            "company": lead.company if lead else "",
+            "location": lead.location if lead else "",
+            "url": lead.url if lead else "",
+            "description": lead.jd_text if lead else "",
+        })
+    return out
