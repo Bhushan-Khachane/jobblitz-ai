@@ -10,7 +10,7 @@ from app.config import settings
 from app.database import engine
 from app.models import Application, Credential, DeadLetterLog, JobListing, JobSearch, Profile, Resume, UsageLog, User
 from app.services.scraper_service import scrape_linkedin_jobs, scrape_naukri_jobs
-from app.services.matching_service import match_job_to_resume, match_job_to_resume_detailed
+from app.services.matching_service import match_job_to_resume_detailed
 
 import logging
 

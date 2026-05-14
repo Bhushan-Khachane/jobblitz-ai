@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import uuid
+import uuid as _uuid
 from datetime import datetime, timezone
 
 import redis.asyncio as aioredis
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header as FastAPIHeader, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy import select
@@ -54,12 +55,7 @@ async def get_current_user(
 
 INTERNAL_API_KEY = settings.INTERNAL_API_KEY or "jobblitz-internal-dev-key"
 
-
-from fastapi import Header as FastAPIHeader
-
 optional_security = HTTPBearer(auto_error=False)
-
-import uuid as _uuid
 
 
 # Create a lightweight system-user sentinel

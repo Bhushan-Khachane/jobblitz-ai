@@ -91,7 +91,6 @@ async def _fill_standard_fields(page: Page, profile: dict) -> None:
         placeholder = ((await inp.get_attribute("placeholder")) or "").lower()
         aria = ((await inp.get_attribute("aria-label")) or "").lower()
         combined = f"{name} {placeholder} {aria}"
-        tag = await inp.evaluate("el => el.tagName")
         input_type = (await inp.get_attribute("type")) or ""
 
         if input_type in ("hidden", "submit", "button", "checkbox", "radio"):
@@ -270,7 +269,6 @@ async def _apply_naukri(
     answers: dict[str, str] = {}
 
     # Ensure we are logged in first — login is handled via Neko cloud browser sessions
-    job_url = page.url
     if await _is_naukri_login_required(page):
         return False, "Naukri login required — connect via Neko cloud browser first", {}
 
@@ -331,9 +329,6 @@ async def apply_to_job(
     Full application flow using browser pool: open page, fill form, submit.
     Returns (success, error, screenshot_path, answers_used).
     """
-    from app.utils.encryption import decrypt, is_encrypted
-    password = decrypt(encrypted_password) if is_encrypted(encrypted_password) else encrypted_password
-
     screenshot_path: str | None = None
     answers: dict[str, str] = {}
 
