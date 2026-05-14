@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,11 +95,11 @@ async def delete_search(
 @router.post("/{search_id}/run", status_code=status.HTTP_202_ACCEPTED)
 async def run_search(
     search_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Run a saved JobSearch via the full discovery workflow - returns immediately."""
-    import asyncio
     import httpx
     import os
     from app.models import Profile, Resume
@@ -160,15 +160,16 @@ async def run_search(
     except Exception:
         pass  # non-fatal, we'll still dispatch
 
-    # Fire-and-forget: dispatch without waiting
-    asyncio.create_task(dispatch_workflow(
+    # Fire-and-forget via FastAPI BackgroundTasks so the task survives response
+    background_tasks.add_task(
+        dispatch_workflow,
         str(user.id),
         search.platform,
         adk_search_profile,
         user_profile,
         resume_text,
-        pre_run_id=pre_run_id,
-    ))
+        pre_run_id,
+    )
 
     search.last_run_at = datetime.now(timezone.utc)
     await db.commit()

@@ -183,9 +183,13 @@ export default function SearchesPage() {
       case "skipped":
         return "No matching jobs found. Try different keywords.";
       case "failed":
-        return `Discovery failed: ${runStatus.error || "Unknown error"}`;
+        return `❌ Discovery failed: ${runStatus.error || "Unknown error"}`;
+      case "error":
+        return `❌ Workflow error: ${runStatus.error || "Unknown error"}`;
+      case "not_found":
+        return "⏳ Waiting for workflow to start...";
       default:
-        return "";
+        return `⏳ ${runStatus.status}...`;
     }
   };
 
