@@ -18,6 +18,7 @@ from app.routers import (
     cover_letters,
     credentials,
     health,
+    job_leads,
     job_listings,
     job_searches,
     resumes,
@@ -137,6 +138,7 @@ app.include_router(users.router, prefix="/api/v1")
 app.include_router(resumes.router, prefix="/api/v1")
 app.include_router(credentials.router, prefix="/api/v1")
 app.include_router(job_searches.router, prefix="/api/v1")
+app.include_router(job_leads.router, prefix="/api/v1")
 app.include_router(job_listings.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")
 app.include_router(cover_letters.router, prefix="/api/v1")

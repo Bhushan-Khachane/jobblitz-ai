@@ -149,8 +149,7 @@ def resume(session_id: str = "default") -> str:
 def state_save(name: str, session_id: str = "default") -> str:
     async def _save():
         page = await _get_page(session_id)
-        ctx = page.context
-        state = await ctx.storage_state()
+        state = await page.context.storage_state()
         os.makedirs(SESSION_DIR, exist_ok=True)
         path = os.path.join(SESSION_DIR, f"{name}.json")
         with open(path, "w") as f:
@@ -161,13 +160,12 @@ def state_save(name: str, session_id: str = "default") -> str:
 
 def state_load(name: str, session_id: str = "default") -> str:
     async def _load():
-        global _contexts
-        path = os.path.join(SESSION_DIR, f"{name}.json")
-        if not os.path.exists(path):
-            return "missing"
-        with open(path) as f:
+        global _contexts, _browser
+        state_path = os.path.join(SESSION_DIR, f"{name}.json")
+        if not os.path.exists(state_path):
+            return "no_state"
+        with open(state_path) as f:
             state = json.load(f)
-        # close old context if exists
         if session_id in _contexts:
             try:
                 await _contexts[session_id].close()
@@ -180,7 +178,7 @@ def state_load(name: str, session_id: str = "default") -> str:
                        "AppleWebKit/537.36 (KHTML, like Gecko) "
                        "Chrome/124.0.0.0 Safari/537.36"
         )
-        return "ok"
+        return state_path
     return _run_sync(_load())
 
 
