@@ -537,6 +537,17 @@ async def batch_auto_apply(ctx: dict) -> dict:
             user_counts: dict[str, int] = {}
             user_cache: dict[str, User] = {}
 
+            # Single query: count today's applications per user (avoids N+1)
+            from sqlalchemy import func as sqlfunc
+            counts_result = await db.execute(
+                select(Application.user_id, sqlfunc.count(Application.id).label("cnt"))
+                .where(Application.created_at >= today_start)
+                .group_by(Application.user_id)
+            )
+            user_counts = {
+                str(row.user_id): row.cnt for row in counts_result
+            }
+
             # We need the ARQ pool to enqueue jobs
             from arq import create_pool
             from arq.connections import RedisSettings
@@ -556,18 +567,9 @@ async def batch_auto_apply(ctx: dict) -> dict:
                     user_cache[uid] = user
                 user = user_cache[uid]
 
-                # Count today's applications for this user
-                if uid not in user_counts:
-                    count_result = await db.execute(
-                        select(Application).where(
-                            Application.user_id == listing.user_id,
-                            Application.created_at >= today_start,
-                        )
-                    )
-                    user_counts[uid] = len(count_result.scalars().all())
-
+                current_count = user_counts.get(uid, 0)
                 daily_limit = user.daily_apply_limit if user.daily_apply_limit else settings.MAX_APPLICATIONS_PER_DAY
-                if user_counts[uid] >= daily_limit:
+                if current_count >= daily_limit:
                     continue
 
                 # Verify user has active credentials for this platform
@@ -626,7 +628,7 @@ async def batch_auto_apply(ctx: dict) -> dict:
                     db.add(app)
                     await db.commit()
                     queued_for_approval += 1
-                    user_counts[uid] += 1
+                    user_counts[uid] = user_counts.get(uid, 0) + 1
                     continue
 
                 # Auto mode: enqueue the individual apply task
@@ -636,7 +638,7 @@ async def batch_auto_apply(ctx: dict) -> dict:
                     job_listing_id=str(listing.id),
                 )
                 listing.status = "queued"
-                user_counts[uid] += 1
+                user_counts[uid] = user_counts.get(uid, 0) + 1
                 dispatched += 1
 
             await db.commit()

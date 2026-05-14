@@ -199,6 +199,11 @@ async def create_step_event(
     db: AsyncSession = Depends(get_db),
 ):
     """ADK orchestrator posts step events here. Accepts user JWT or internal API key."""
+    from app.dependencies import _SystemUser
+    if isinstance(user, _SystemUser):
+        # Internal service call — run_id from path, no user.id in DB writes
+        pass
+
     result = await db.execute(
         select(ApplicationRun).where(ApplicationRun.id == run_id)
     )

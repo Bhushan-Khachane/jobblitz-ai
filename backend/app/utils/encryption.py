@@ -24,3 +24,8 @@ def decrypt(ciphertext: str) -> str:
     """Decrypt a Fernet token and return the plaintext string."""
     f = _get_fernet()
     return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+
+
+def is_encrypted(value: str) -> bool:
+    """Heuristic: Fernet tokens start with 'gAAAAA'."""
+    return value.startswith("gAAAAA")

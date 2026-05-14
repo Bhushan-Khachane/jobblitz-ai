@@ -331,6 +331,9 @@ async def apply_to_job(
     Full application flow using browser pool: open page, fill form, submit.
     Returns (success, error, screenshot_path, answers_used).
     """
+    from app.utils.encryption import decrypt, is_encrypted
+    password = decrypt(encrypted_password) if is_encrypted(encrypted_password) else encrypted_password
+
     screenshot_path: str | None = None
     answers: dict[str, str] = {}
 
@@ -351,7 +354,6 @@ async def apply_to_job(
             if "login" in page.url.lower() or "signin" in page.url.lower():
                 screenshot_path = await _save_screenshot(page, user_id, "login_required")
                 return False, "Login required — connect via Neko cloud browser first", screenshot_path, {}
-                await _random_delay(2, 4)
 
             if platform == "naukri":
                 # Naukri-specific flow: click Apply first, then fill any modal/form

@@ -40,6 +40,7 @@ services:
       - NEKO_PUBLIC_HOST=localhost
       - ADK_ORCHESTRATOR_URL=http://adk-orchestrator:8001
       - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-jobblitz-internal-secret}
+      - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY}
     depends_on:
       postgres:
         condition: service_healthy
