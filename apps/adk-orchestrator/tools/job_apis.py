@@ -89,7 +89,7 @@ def _norm_remotive(j: Dict) -> Dict:
     }
 
 
-async def search_all(keywords: str, location: str = "India") -> List[Dict]:
+async def search_all(keywords: str, location: str = "India", portal: str = "naukri") -> List[Dict]:
     from asyncio import gather
     results = await gather(
         search_adzuna(keywords, location),

@@ -40,6 +40,10 @@ def _profile_to_dict(profile: Profile | None, user: User) -> dict:
     }
 
 
+async def apply_to_job_with_agent(**kwargs):
+    yield {"event": "error", "result": "Browser agent not yet implemented"}
+
+
 @router.post("/apply/{job_listing_id}", response_model=ApplicationResponse, status_code=status.HTTP_201_CREATED)
 async def apply_to_job_endpoint(
     job_listing_id: uuid.UUID,
@@ -219,14 +223,40 @@ async def get_approval_queue(
 ):
     """Get all applications awaiting user approval (assisted mode)."""
     result = await db.execute(
-        select(Application)
+        select(Application, JobListing)
+        .join(JobListing, Application.job_listing_id == JobListing.id)
         .where(
             Application.user_id == user.id,
             Application.approval_status == "pending_approval",
         )
         .order_by(Application.created_at.desc())
     )
-    return result.scalars().all()
+    rows = result.all()
+    out = []
+    for app, listing in rows:
+        screening = (app.answers_used or {}).get("screening", {})
+        out.append(ApplicationResponse(
+            id=app.id,
+            job_listing_id=app.job_listing_id,
+            resume_id=app.resume_id,
+            status=app.status,
+            approval_status=app.approval_status,
+            idempotency_key=app.idempotency_key,
+            cover_letter=app.cover_letter,
+            error_message=app.error_message,
+            screenshot_path=app.screenshot_path,
+            retry_count=app.retry_count,
+            applied_at=app.applied_at,
+            created_at=app.created_at,
+            job_title=listing.title,
+            company=listing.company,
+            location=listing.location,
+            apply_url=listing.apply_url,
+            fit_score=screening.get("fit_score"),
+            gap_notes=screening.get("gap_notes"),
+            portal=listing.platform,
+        ))
+    return out
 
 
 @router.get("/{application_id}", response_model=ApplicationResponse)
@@ -348,7 +378,7 @@ async def create_application_from_lead(
             location=lead.location,
             description=lead.jd_text or "",
             apply_url=lead.url,
-            salary_info=lead.salary or "",
+            salary_info=getattr(lead, "salary", None) or "",
             status="discovered",
             match_score=0.5,
         )
@@ -462,11 +492,12 @@ async def queue_for_approval(
 
     # 3) Idempotency key
     idempotency_key = f"apply:{user_uuid}:{listing.id}"
-    existing = await db.execute(
+    existing_result = await db.execute(
         select(Application).where(Application.idempotency_key == idempotency_key)
     )
-    if existing.scalar_one_or_none():
-        return {"status": "already_queued", "application_id": str(existing.scalar_one_or_none().id)}
+    existing_app = existing_result.scalar_one_or_none()
+    if existing_app:
+        return {"status": "already_queued", "application_id": str(existing_app.id)}
 
     # 4) Find default resume
     res_result = await db.execute(

@@ -11,7 +11,7 @@ async def run_screening(job_lead: dict, user_profile: dict, resume_text: str) ->
     Input: job_lead, user_profile, resume_text
     Output: fit_score, must_have_match, gap_notes, decision
     """
-    jd_text = job_lead.get("jd_text", "")
+    jd_text = job_lead.get("jd_text") or job_lead.get("description") or ""
     title = job_lead.get("title", "")
     company = job_lead.get("company", "")
 

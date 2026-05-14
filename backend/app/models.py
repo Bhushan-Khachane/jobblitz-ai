@@ -371,6 +371,8 @@ class JobLead(Base):
     external_job_id: Mapped[str | None] = mapped_column(String(255))
     normalized_hash: Mapped[str | None] = mapped_column(String(64), index=True)
     raw_data: Mapped[dict | None] = mapped_column(JSONB)
+    experience: Mapped[str | None] = mapped_column(String(255))
+    salary: Mapped[str | None] = mapped_column(String(255))
     discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     processed: Mapped[bool] = mapped_column(Boolean, default=False)
 

@@ -31,7 +31,7 @@ async def dispatch_workflow(
     resume_text: str = "",
 ) -> dict:
     """Dispatch the full workflow (discovery → screening → approval queue)."""
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(
             f"{ADK_URL}/agent/run",
             json={

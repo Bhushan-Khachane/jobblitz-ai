@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -89,6 +90,77 @@ async def delete_search(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job search not found")
     await db.delete(search)
     await db.commit()
+
+
+@router.post("/{search_id}/run", status_code=status.HTTP_202_ACCEPTED)
+async def run_search(
+    search_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run a saved JobSearch via the full discovery workflow."""
+    from app.models import Profile, Resume
+    from app.services.agent_dispatcher import dispatch_workflow
+
+    result = await db.execute(
+        select(JobSearch).where(JobSearch.id == search_id, JobSearch.user_id == user.id)
+    )
+    search = result.scalar_one_or_none()
+    if not search:
+        raise HTTPException(status_code=404, detail="Job search not found")
+    if not search.is_active:
+        raise HTTPException(status_code=400, detail="Search is paused. Enable it first.")
+
+    # Fetch user profile and resume
+    prof_result = await db.execute(select(Profile).where(Profile.user_id == user.id))
+    prof = prof_result.scalar_one_or_none()
+
+    user_profile = {
+        "id": str(user.id),
+        "email": user.email,
+        "full_name": user.full_name,
+        "headline": prof.headline if prof else "",
+        "skills": prof.skills if prof else [],
+        "experience": prof.experience if prof else {},
+        "summary": prof.summary if prof else "",
+        "notice_period_days": prof.notice_period_days if prof else 30,
+    }
+
+    resume_text = ""
+    res_result = await db.execute(
+        select(Resume).where(Resume.user_id == user.id, Resume.is_default == True)
+    )
+    resume = res_result.scalar_one_or_none()
+    if resume:
+        resume_text = resume.parsed_text or ""
+
+    adk_search_profile = {
+        "id": str(search.id),
+        "keywords": search.keywords,
+        "location": search.location or "",
+        "portal": search.platform,
+        "years_experience": 2,
+        "job_age_days": 7,
+        "user_id": str(user.id),
+    }
+
+    adk_result = await dispatch_workflow(
+        str(user.id),
+        search.platform,
+        adk_search_profile,
+        user_profile,
+        resume_text,
+    )
+    run_id = adk_result.get("run_id")
+
+    search.last_run_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    return {
+        "run_id": run_id,
+        "status": "queued",
+        "message": f"Discovery workflow queued for search '{search.name}'",
+    }
 
 
 @router.post("/{search_id}/trigger", status_code=status.HTTP_202_ACCEPTED)

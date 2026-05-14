@@ -23,7 +23,7 @@ export function useRunStatus(runId: string | null) {
 
     const fetchStatus = async () => {
       try {
-        const resp = await fetch(`/api/v1/applications/${runId}/adk-status`);
+        const resp = await fetch(`/api/v1/discovery/run/${runId}/status`);
         const json = await resp.json();
         setStatus(json.status || "unknown");
         setData(json);

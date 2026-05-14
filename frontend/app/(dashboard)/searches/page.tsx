@@ -136,9 +136,9 @@ export default function SearchesPage() {
     setRunning(id);
     setTriggerMsgs((m) => ({ ...m, [id]: "" }));
     try {
-      const { data } = await api.post(`/job-searches/${id}/trigger`);
-      const tid = data.task_id || data.job_id || "queued";
-      setTriggerMsgs((m) => ({ ...m, [id]: `✓ Discovery started! (${typeof tid === "string" ? tid.slice(0, 8) : tid}...)` }));
+      const { data } = await api.post(`/job-searches/${id}/run`);
+      const runId = data.run_id || "queued";
+      setTriggerMsgs((m) => ({ ...m, [id]: `✓ Discovery workflow queued! (${typeof runId === "string" ? runId.slice(0, 8) : runId}...)` }));
       setTimeout(() => setTriggerMsgs((m) => ({ ...m, [id]: "" })), 8000);
     } catch (e: any) {
       setTriggerMsgs((m) => ({ ...m, [id]: e.response?.data?.detail || "Failed to trigger search" }));

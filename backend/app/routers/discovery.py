@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import uuid
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+import os
+
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,7 +47,8 @@ async def run_discovery(
         job_age_days=job_age_days,
     )
     db.add(profile)
-    await db.flush()
+    await db.commit()
+    await db.refresh(profile)
 
     # Fetch user profile and resume for the workflow
     prof_result = await db.execute(select(Profile).where(Profile.user_id == user.id))
@@ -68,10 +71,8 @@ async def run_discovery(
         select(Resume).where(Resume.user_id == user.id, Resume.is_default == True)
     )
     resume = res_result.scalar_one_or_none()
-    if resume and hasattr(resume, "resume_text"):
-        resume_text = resume.resume_text or ""
-    elif resume and hasattr(resume, "parsed_content"):
-        resume_text = resume.parsed_content or ""
+    if resume:
+        resume_text = resume.parsed_text or ""
 
     # Dispatch full workflow to ADK orchestrator
     adk_search_profile = {
@@ -195,6 +196,91 @@ async def list_job_leads(
         "page": page,
         "page_size": page_size,
     }
+
+
+INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "changeme-internal")
+
+
+@router.post("/job-leads/bulk-internal", response_model=dict)
+async def bulk_create_job_leads_internal(
+    body: dict,
+    x_service_token: str = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Internal endpoint for ADK orchestrator to bulk insert job leads."""
+    if x_service_token != INTERNAL_SERVICE_TOKEN:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    leads = body.get("leads", [])
+    portal = body.get("portal", "naukri")
+    user_id_str = body.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=400, detail="user_id required")
+
+    try:
+        user_uuid = uuid.UUID(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid user_id")
+
+    inserted = 0
+    duplicates = 0
+
+    for lead in leads:
+        title = (lead.get("title") or "").strip().lower()
+        company = (lead.get("company") or "").strip().lower()
+        url = (lead.get("url") or "").strip()
+        hash_input = f"{title}|{company}|{url}"
+        normalized_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+
+        result = await db.execute(
+            select(JobLead).where(
+                JobLead.normalized_hash == normalized_hash,
+                JobLead.user_id == user_uuid,
+            )
+        )
+        if result.scalar_one_or_none():
+            duplicates += 1
+            continue
+
+        db_lead = JobLead(
+            user_id=user_uuid,
+            portal=portal,
+            title=lead.get("title") or "",
+            company=lead.get("company") or "",
+            location=lead.get("location") or "",
+            url=url,
+            jd_text=lead.get("jd_text") or "",
+            experience=lead.get("experience") or "",
+            salary=lead.get("salary") or "",
+            normalized_hash=normalized_hash,
+            raw_data=lead,
+        )
+        db.add(db_lead)
+        inserted += 1
+
+    await db.commit()
+
+    return {
+        "inserted": inserted,
+        "duplicates": duplicates,
+        "total": len(leads),
+    }
+
+
+@router.get("/run/{run_id}/status")
+async def get_run_status_proxy(
+    run_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Proxy to ADK orchestrator run status."""
+    import httpx
+    adk_url = os.getenv("ADK_ORCHESTRATOR_URL", "http://adk-orchestrator:8001")
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{adk_url}/agent/run/{run_id}/status")
+            return resp.json()
+    except Exception as e:
+        return {"status": "unknown", "error": str(e)}
 
 
 @router.get("/rate-status")

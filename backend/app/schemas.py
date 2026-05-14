@@ -222,6 +222,14 @@ class ApplicationResponse(BaseModel):
     retry_count: int
     applied_at: datetime | None
     created_at: datetime
+    # Enriched job details (populated from join)
+    job_title: str | None = None
+    company: str | None = None
+    location: str | None = None
+    apply_url: str | None = None
+    fit_score: float | None = None
+    gap_notes: str | None = None
+    portal: str | None = None
 
     model_config = {"from_attributes": True}
 

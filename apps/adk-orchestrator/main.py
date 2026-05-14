@@ -184,7 +184,8 @@ async def run_agent_endpoint(body: AgentRunRequest, background_tasks: Background
     """Queue an agent run and return immediately with run_id."""
     run_id = str(uuid.uuid4())
     await set_run_status(run_id, "queued", {"agent": body.agent})
-    background_tasks.add_task(_execute_agent, body)
+    body_dict = body.model_copy(update={"run_id": run_id})
+    background_tasks.add_task(_execute_agent, body_dict)
     return {"run_id": run_id, "status": "queued"}
 
 

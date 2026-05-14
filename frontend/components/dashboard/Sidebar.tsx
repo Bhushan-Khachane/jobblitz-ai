@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   User,
@@ -14,9 +15,10 @@ import {
   ChevronRight,
   ClipboardCheck,
   Link2,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import api from "@/lib/api";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -25,7 +27,7 @@ const nav = [
   { href: "/discovery", label: "Discovery", icon: Search },
   { href: "/review-jobs", label: "Review Jobs", icon: ClipboardCheck },
   { href: "/applications", label: "Applications", icon: Briefcase },
-  { href: "/approval-queue", label: "Approval Queue", icon: ClipboardCheck },
+  { href: "/approval-queue", label: "Approval Queue", icon: Bell, badge: true },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/billing", label: "Billing", icon: CreditCard },
 ];
@@ -33,8 +35,23 @@ const nav = [
 export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [queueCount, setQueueCount] = useState(0);
   const mobileOpen = isOpen ?? false;
   const closeMobile = onClose ?? (() => {});
+
+  useEffect(() => {
+    const fetchCount = async () => {
+      try {
+        const { data } = await api.get("/applications/approval-queue");
+        setQueueCount((data || []).length);
+      } catch {
+        // ignore
+      }
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <>
@@ -59,6 +76,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
           {nav.map((item) => {
             const active = pathname === item.href;
+            const count = item.badge ? queueCount : 0;
             return (
               <Link
                 key={item.href}
@@ -72,7 +90,18 @@ export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose
                 )}
               >
                 <item.icon className={cn("w-5 h-5 shrink-0", active ? "text-indigo-400" : "text-white/30")} />
-                {!collapsed && <span>{item.label}</span>}
+                {!collapsed && (
+                  <span className="flex-1 flex items-center justify-between"
+                  >
+                    <span>{item.label}</span>
+                    {count > 0 && (
+                      <span className="ml-2 px-1.5 py-0.5 text-[10px] font-bold bg-red-500/80 text-white rounded-full min-w-[18px] text-center"
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </span>
+                )}
               </Link>
             );
           })}
