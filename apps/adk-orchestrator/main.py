@@ -18,6 +18,9 @@ from config.llm import test_llm_connection
 from state.run_tracker import get_run_status, set_run_status
 
 
+from scheduler import start_scheduler, scheduler
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: verify LLM connection (non-fatal — service starts even if LLM is down)
@@ -29,8 +32,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         import logging
         logging.warning(f"LLM client initialization warning: {e}")
+    start_scheduler()
     yield
-    # Shutdown
+    scheduler.shutdown(wait=False)
 
 
 app = FastAPI(

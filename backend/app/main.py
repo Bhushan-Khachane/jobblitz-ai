@@ -47,10 +47,9 @@ async def check_db_ping() -> bool:
 async def check_redis_ping() -> bool:
     """Check if Redis is reachable."""
     try:
-        import redis.asyncio as aioredis
-        r = aioredis.from_url(settings.REDIS_URL)
+        from app.redis_client import get_redis
+        r = get_redis()
         result = await r.ping()
-        await r.aclose()
         return result
     except Exception:
         return False

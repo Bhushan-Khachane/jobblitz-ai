@@ -101,7 +101,7 @@ async def run_workflow(
                         "screening_result": item["screening"],
                         "search_profile_id": search_profile.get("id"),
                     },
-                    headers={"x-service-token": os.getenv("INTERNAL_SERVICE_TOKEN", "changeme-internal")},
+                    headers={"x-service-token": os.getenv("INTERNAL_SERVICE_TOKEN", "jobblitz-internal-secret")},
                     timeout=10.0,
                 )
                 resp.raise_for_status()

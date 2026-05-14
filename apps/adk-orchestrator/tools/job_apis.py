@@ -1,20 +1,28 @@
 import httpx, os
 from typing import List, Dict
 
-ADZUNA_APP_ID  = os.environ.get("ADZUNA_APP_ID", "")
-ADZUNA_APP_KEY = os.environ.get("ADZUNA_APP_KEY", "")
-JOOBLE_KEY     = os.environ.get("JOOBLE_API_KEY", "")
+
+def _adzuna_id() -> str:
+    return os.environ.get("ADZUNA_APP_ID", "")
+
+
+def _adzuna_key() -> str:
+    return os.environ.get("ADZUNA_APP_KEY", "")
+
+
+def _jooble_key() -> str:
+    return os.environ.get("JOOBLE_API_KEY", "")
 
 
 async def search_adzuna(keywords: str, location: str = "India",
                         count: int = 20) -> List[Dict]:
-    if not ADZUNA_APP_ID:
+    if not _adzuna_id():
         return []
     url = "https://api.adzuna.com/v1/api/jobs/in/search/1"
     async with httpx.AsyncClient(timeout=15) as client:
         try:
             r = await client.get(url, params={
-                "app_id": ADZUNA_APP_ID, "app_key": ADZUNA_APP_KEY,
+                "app_id": _adzuna_id(), "app_key": _adzuna_key(),
                 "what": keywords, "where": location,
                 "results_per_page": count,
             })
@@ -25,12 +33,12 @@ async def search_adzuna(keywords: str, location: str = "India",
 
 
 async def search_jooble(keywords: str, location: str = "India") -> List[Dict]:
-    if not JOOBLE_KEY:
+    if not _jooble_key():
         return []
     async with httpx.AsyncClient(timeout=15) as client:
         try:
             r = await client.post(
-                f"https://jooble.org/api/{JOOBLE_KEY}",
+                f"https://jooble.org/api/{_jooble_key()}",
                 json={"keywords": keywords, "location": location}
             )
             r.raise_for_status()

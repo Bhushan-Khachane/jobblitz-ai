@@ -85,22 +85,37 @@ async def dispatch_scoring(user_id: str, job_lead_ids: list[str]) -> dict:
 
 
 async def dispatch_apply(user_id: str, application_plan_id: str, plan_payload: dict | None = None, run_id: str | None = None) -> dict:
+    import logging
     async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            f"{ADK_URL}/agent/run",
-            json={
-                "agent": "apply",
-                "user_id": str(user_id),
-                "plan_id": application_plan_id,
-                "dry_run": DRY_RUN,
-                "search_profile": plan_payload or {},
-                "run_id": run_id,
-            },
-        )
-        return resp.json()
+        try:
+            resp = await client.post(
+                f"{ADK_URL}/agent/run",
+                json={
+                    "agent": "apply",
+                    "user_id": str(user_id),
+                    "plan_id": application_plan_id,
+                    "dry_run": DRY_RUN,
+                    "search_profile": plan_payload or {},
+                    "run_id": run_id,
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError as e:
+            logging.error(f"dispatch_apply failed: {e.response.status_code} {e.response.text}")
+            return {"run_id": run_id, "status": "error", "error": str(e)}
+        except Exception as e:
+            logging.error(f"dispatch_apply exception: {e}")
+            return {"run_id": run_id, "status": "error", "error": str(e)}
 
 
 async def get_run_status(run_id: str) -> dict:
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        resp = await client.get(f"{ADK_URL}/agent/run/{run_id}/status")
-        return resp.json()
+    import logging
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{ADK_URL}/agent/run/{run_id}/status")
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as e:
+        logging.error(f"get_run_status exception: {e}")
+        return {"status": "unknown", "error": str(e)}

@@ -421,7 +421,7 @@ async def create_application_from_lead(
     }
 
 
-INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "changeme-internal")
+INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "jobblitz-internal-secret")
 
 
 class QueueApprovalRequest(BaseModel):
@@ -601,12 +601,11 @@ async def generate_cover_letter(
         raise HTTPException(status_code=502, detail=f"Cover letter service error: {e}")
 
     # Cache in Redis
-    redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
     try:
-        r = redis.from_url(redis_url, decode_responses=True)
+        from app.redis_client import get_redis
+        r = get_redis()
         cache_key = f"cover_letter:{user.id}:{application_id}"
         await r.setex(cache_key, 60 * 60 * 24 * 7, _json.dumps(data))
-        await r.close()
     except Exception:
         pass
 
@@ -645,6 +644,12 @@ async def stream_apply(
     Frontend connects to this endpoint and receives real-time
     step-by-step progress from the browser agent.
     """
+    if os.getenv("BROWSER_AGENT_ENABLED", "false").lower() != "true":
+        raise HTTPException(
+            status_code=501,
+            detail="Browser-based auto-apply is not yet available. Use the approval queue instead.",
+        )
+
     # Get listing
     listing_result = await db.execute(
         select(JobListing).where(JobListing.id == job_listing_id, JobListing.user_id == user.id)

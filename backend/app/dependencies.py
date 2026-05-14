@@ -59,6 +59,21 @@ from fastapi import Header as FastAPIHeader
 
 optional_security = HTTPBearer(auto_error=False)
 
+import uuid as _uuid
+
+
+# Create a lightweight system-user sentinel
+class _SystemUser:
+    id = _uuid.UUID("00000000-0000-0000-0000-000000000001")
+    email = "system@jobblitz.internal"
+    full_name = "System"
+    is_active = True
+    application_mode = "auto"
+    daily_apply_limit = 9999
+    phone = None
+    location = None
+
+
 async def get_current_user_or_service(
     credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
     x_internal_api_key: str | None = FastAPIHeader(None, alias="x-internal-api-key"),
@@ -66,14 +81,11 @@ async def get_current_user_or_service(
 ) -> User:
     """Accept either a valid user JWT or an internal service API key.
     For service-to-service calls, pass X-Internal-Api-Key header.
+    Endpoints using this MUST NOT use user.id for DB writes — use body.user_id instead.
     """
     # Check internal API key first (for service-to-service)
     if x_internal_api_key == INTERNAL_API_KEY:
-        # Return a dummy system user for internal calls
-        result = await db.execute(select(User).limit(1))
-        user = result.scalar_one_or_none()
-        if user:
-            return user
+        return _SystemUser()  # safe sentinel, not a real DB user
     # Fall back to JWT auth
     if credentials is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing auth credentials")

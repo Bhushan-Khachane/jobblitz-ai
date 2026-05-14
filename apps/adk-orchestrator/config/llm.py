@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import os
 from typing import Optional
 
@@ -22,16 +23,20 @@ GEMINI_API_KEYS = [k for k in [
     os.getenv("GOOGLE_AI_STUDIO_API_KEY_2"),
     os.getenv("GOOGLE_AI_STUDIO_API_KEY_3"),
 ] if k]
-_gemini_key_index = 0
+
+_gemini_cycle: itertools.cycle | None = None
+
+
+def _init_gemini_cycle():
+    global _gemini_cycle
+    if GEMINI_API_KEYS:
+        _gemini_cycle = itertools.cycle(GEMINI_API_KEYS)
 
 
 def _next_gemini_key() -> Optional[str]:
-    global _gemini_key_index
-    if not GEMINI_API_KEYS:
-        return None
-    key = GEMINI_API_KEYS[_gemini_key_index % len(GEMINI_API_KEYS)]
-    _gemini_key_index += 1
-    return key
+    if not _gemini_cycle:
+        _init_gemini_cycle()
+    return next(_gemini_cycle) if _gemini_cycle else None
 
 
 # ── Provider selection ─────────────────────────────────────

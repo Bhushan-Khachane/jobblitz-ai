@@ -198,7 +198,7 @@ async def list_job_leads(
     }
 
 
-INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "changeme-internal")
+INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "jobblitz-internal-secret")
 
 
 @router.post("/job-leads/bulk-internal", response_model=dict)

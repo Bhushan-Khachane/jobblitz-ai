@@ -295,17 +295,27 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
             if resume:
                 resume_path = resume.file_path
 
-        # Create application record
-        application = Application(
-            user_id=uid,
-            job_listing_id=lid,
-            resume_id=uuid.UUID(resume_id) if resume_id else (resume.id if resume else None),
-            status="pending",
+        # Try to find the existing application record (created by router)
+        existing_by_listing = await db.execute(
+            select(Application).where(
+                Application.user_id == uid,
+                Application.job_listing_id == lid,
+            )
         )
-        db.add(application)
-        listing.status = "applied"
-        await db.commit()
-        await db.refresh(application)
+        application = existing_by_listing.scalar_one_or_none()
+        if not application:
+            # Create one only if it doesn't exist (direct task dispatch)
+            application = Application(
+                user_id=uid,
+                job_listing_id=lid,
+                resume_id=uuid.UUID(resume_id) if resume_id else (resume.id if resume else None),
+                status="pending",
+                idempotency_key=idempotency_key,
+            )
+            db.add(application)
+            listing.status = "applied"
+            await db.commit()
+            await db.refresh(application)
 
         # Apply using browser pool + ATS router
         from app.services.browser_pool import browser_pool
@@ -324,6 +334,7 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
         error = None
         screenshot_path = None
         answers_used = None
+        assisted_mode = False  # default; overridden after successful apply
         try:
             browser_ctx = await browser_pool.acquire(task_type="apply", user_tier="pro" if user.daily_apply_limit > 50 else "free")
             page = await browser_ctx.new_page()
@@ -593,6 +604,16 @@ async def batch_auto_apply(ctx: dict) -> dict:
                     continue
 
                 if application_mode == "assisted":
+                    # Duplicate check
+                    idempotency_key = f"apply:{listing.user_id}:{listing.id}"
+                    existing_check = await db.execute(
+                        select(Application).where(
+                            Application.idempotency_key == idempotency_key
+                        )
+                    )
+                    if existing_check.scalar_one_or_none():
+                        continue
+
                     # Assisted mode: create application with pending_approval status
                     app = Application(
                         user_id=listing.user_id,
@@ -600,6 +621,7 @@ async def batch_auto_apply(ctx: dict) -> dict:
                         resume_id=resume.id if resume else None,
                         status="pending",
                         approval_status="pending_approval",
+                        idempotency_key=idempotency_key,
                     )
                     db.add(app)
                     await db.commit()
