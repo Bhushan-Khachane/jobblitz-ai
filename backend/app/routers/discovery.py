@@ -14,7 +14,7 @@ from app.dependencies import get_current_user, rate_limiter
 from app.models import JobLead, JobSearchProfile, JobScore, Profile, Resume, User
 from app.schemas import JobLeadResponse, JobSearchProfileCreate, JobSearchProfileResponse, StandardRunResponse
 from app.services.agent_dispatcher import dispatch_workflow
-from app.services.rate_enforcer import get_rate_status
+from app.services.velocity_governor import get_apply_stats
 
 router = APIRouter(prefix="/discovery", tags=["discovery"])
 
@@ -288,4 +288,5 @@ async def discovery_rate_status(
     portal: str = "naukri",
     user: User = Depends(get_current_user),
 ):
-    return await get_rate_status(str(user.id), portal)
+    stats = await get_apply_stats(str(user.id))
+    return stats.get(portal, {"used": 0, "limit": 15, "remaining": 15})

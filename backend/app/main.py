@@ -102,13 +102,20 @@ app.add_middleware(RequestLogMiddleware)
 # ── CORS ─────────────────────────────────────────────────────────────────────
 
 ALLOWED_ORIGINS = settings.ALLOWED_ORIGINS.split(",")
+# Allow Chrome extension origins for WebSocket connections
+if "chrome-extension://*" not in ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS.append("chrome-extension://*")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Internal-Api-Key", "X-Requested-With", "Origin"],
+    allow_headers=[
+        "Authorization", "Content-Type", "Accept", "X-Internal-Api-Key",
+        "X-Requested-With", "Origin",
+        "Sec-WebSocket-Key", "Upgrade", "Connection",
+    ],
     expose_headers=["X-Total-Count", "X-Page", "X-Page-Size"],
 )
 

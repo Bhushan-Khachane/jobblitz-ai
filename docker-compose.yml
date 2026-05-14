@@ -39,6 +39,7 @@ services:
       - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001
       - NEKO_PUBLIC_HOST=localhost
       - ADK_ORCHESTRATOR_URL=http://adk-orchestrator:8001
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-jobblitz-internal-dev-key}
       - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-jobblitz-internal-secret}
       - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY}
     depends_on:
@@ -78,6 +79,7 @@ services:
       - ADZUNA_APP_KEY=${ADZUNA_APP_KEY}
       - JOOBLE_API_KEY=${JOOBLE_API_KEY}
       - PYTHONPATH=/app/packages
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-jobblitz-internal-dev-key}
       - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-jobblitz-internal-secret}
     volumes:
       - ./packages:/app/packages:ro

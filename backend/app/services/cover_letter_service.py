@@ -99,3 +99,7 @@ def _max_similarity(text: str, others: list[str]) -> float:
         sim = len(intersection) / (len(tokens | other_tokens) or 1)
         max_sim = max(max_sim, sim)
     return max_sim
+
+
+# Alias for backward compatibility with apply_service and other callers
+generate_cover_letter = generate_unique_cover_letter

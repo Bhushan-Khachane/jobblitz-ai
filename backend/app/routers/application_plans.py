@@ -24,7 +24,7 @@ from app.schemas import (
     StandardRunResponse,
 )
 from app.services.agent_dispatcher import dispatch_apply, get_run_status
-from app.services.rate_enforcer import check_apply_rate, increment_apply_count
+from app.services.velocity_governor import can_apply, record_apply
 
 router = APIRouter(prefix="/application-runs", tags=["applications-v2"])
 
@@ -118,9 +118,9 @@ async def execute_application(
 
     # Rate limiting
     portal = "naukri"  # TODO: derive from job_lead
-    rate = await check_apply_rate(str(user.id), portal)
-    if not rate["allowed"]:
-        raise HTTPException(status_code=429, detail=rate["reason"])
+    allowed, reason = await can_apply(str(user.id), portal)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=reason)
 
     run.status = "running"
     await db.commit()
@@ -134,7 +134,7 @@ async def execute_application(
 
     # Dispatch ADK apply agent, passing backend run_id so step events align
     adk_result = await dispatch_apply(str(user.id), str(run.plan_id) if run.plan_id else "", plan_payload, str(run.id))
-    await increment_apply_count(str(user.id), portal)
+    await record_apply(str(user.id), portal)
 
     # ADK returns queued immediately; actual result comes async via step-events
     run.status = "running"

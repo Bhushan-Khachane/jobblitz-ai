@@ -53,7 +53,7 @@ async def run_discovery(search_profile: dict, session_id: str) -> dict:
                     "portal": portal,
                     "leads": jobs,
                 },
-                headers={"x-service-token": os.getenv("INTERNAL_SERVICE_TOKEN", "jobblitz-internal-secret")},
+                headers={"x-internal-api-key": os.getenv("INTERNAL_API_KEY", os.getenv("INTERNAL_SERVICE_TOKEN", "jobblitz-internal-secret"))},
                 timeout=10.0,
             )
     except Exception:

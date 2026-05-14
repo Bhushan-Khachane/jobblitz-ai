@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import traceback
 import uuid
@@ -8,10 +9,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from playwright.async_api import Page
-from playwright_stealth import stealth_async
+
+try:
+    from playwright_stealth import stealth_async
+except ImportError:  # pragma: no cover
+    stealth_async = None
 
 from app.config import settings
 from app.services.ai_service import answer_question
+from app.services.cover_letter_service import generate_unique_cover_letter
+from app.services.extension_manager import extension_manager
+from app.services.velocity_governor import can_apply, record_apply
+
+logger = logging.getLogger(__name__)
 
 
 VIEWPORT_MIN = 1280
@@ -324,11 +334,55 @@ async def apply_to_job(
     encrypted_password: str,
     resume_path: str | None = None,
     cover_letter: str | None = None,
+    job_title: str | None = None,
+    company: str | None = None,
+    job_description: str | None = None,
+    application_id: str | None = None,
 ) -> tuple[bool, str | None, str | None, dict[str, str]]:
     """
-    Full application flow using browser pool: open page, fill form, submit.
+    Full application flow with extension-first dispatch and Playwright fallback.
     Returns (success, error, screenshot_path, answers_used).
     """
+    # 1. Rate limit check
+    allowed, reason = await can_apply(str(user_id), platform)
+    if not allowed:
+        return False, reason, None, {}
+
+    # 2. Generate unique cover letter if missing and job context is available
+    if not cover_letter and job_title and company and job_description:
+        try:
+            user_resume_summary = (
+                f"Name: {profile.get('full_name', '')}\n"
+                f"Headline: {profile.get('headline', '')}\n"
+                f"Skills: {profile.get('skills', '')}\n"
+                f"Experience: {profile.get('experience', '')}"
+            )
+            cover_letter = await generate_unique_cover_letter(
+                user_id=str(user_id),
+                job_title=job_title,
+                company=company,
+                job_description=job_description,
+                user_resume_summary=user_resume_summary,
+            )
+        except Exception as e:
+            logger.warning(f"Cover letter generation failed: {e}")
+
+    # 3. Try browser extension dispatch first
+    if extension_manager.is_connected(str(user_id)):
+        payload = {
+            "apply_url": apply_url,
+            "platform": platform,
+            "profile": profile,
+            "resume_path": resume_path,
+            "cover_letter": cover_letter,
+            "application_id": application_id,
+        }
+        sent = await extension_manager.send_apply_job(str(user_id), payload)
+        if sent:
+            await record_apply(str(user_id), platform)
+            return True, None, None, {}
+
+    # 4. Fallback to server-side Playwright
     screenshot_path: str | None = None
     answers: dict[str, str] = {}
 
@@ -337,21 +391,17 @@ async def apply_to_job(
     try:
         page = await ctx.new_page()
         try:
-            # stealth_async can break Firefox pages; skip it for Naukri
-            if platform != "naukri":
+            if stealth_async and platform != "naukri":
                 await stealth_async(page)
 
-            # Navigate to the job
             await page.goto(apply_url, wait_until="domcontentloaded", timeout=30000)
             await _random_delay(2, 4)
 
-            # If requires login, redirect to Neko cloud browser flow
             if "login" in page.url.lower() or "signin" in page.url.lower():
                 screenshot_path = await _save_screenshot(page, user_id, "login_required")
                 return False, "Login required — connect via Neko cloud browser first", screenshot_path, {}
 
             if platform == "naukri":
-                # Naukri-specific flow: click Apply first, then fill any modal/form
                 naukri_ok, naukri_err, answers = await _apply_naukri(
                     page, profile, resume_path, cover_letter, user_id, username, encrypted_password
                 )
@@ -359,7 +409,6 @@ async def apply_to_job(
                     screenshot_path = await _save_screenshot(page, user_id, "submit_failed")
                     return False, naukri_err, screenshot_path, answers
             else:
-                # Fill the form
                 fill_ok, answers, fill_err = await fill_application_form(
                     page, profile, resume_path, cover_letter, user_id
                 )
@@ -367,7 +416,6 @@ async def apply_to_job(
                     screenshot_path = await _save_screenshot(page, user_id, "fill_failed")
                     return False, f"Form fill error: {fill_err}", screenshot_path, answers
 
-                # Submit
                 sub_ok, sub_err = await submit_application(page)
                 if not sub_ok:
                     screenshot_path = await _save_screenshot(page, user_id, "submit_failed")
@@ -375,6 +423,7 @@ async def apply_to_job(
 
             await _random_delay(2, 3)
             screenshot_path = await _save_screenshot(page, user_id, "success")
+            await record_apply(str(user_id), platform)
             return True, None, screenshot_path, answers
 
         except Exception as e:
