@@ -23,6 +23,30 @@ async def dispatch_discovery(user_id: str, portal: str, search_profile: dict) ->
         return resp.json()
 
 
+async def dispatch_workflow(
+    user_id: str,
+    portal: str,
+    search_profile: dict,
+    user_profile: dict,
+    resume_text: str = "",
+) -> dict:
+    """Dispatch the full workflow (discovery → screening → approval queue)."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(
+            f"{ADK_URL}/agent/run",
+            json={
+                "agent": "workflow",
+                "user_id": str(user_id),
+                "portal": portal,
+                "search_profile": search_profile,
+                "user_profile": user_profile,
+                "resume_text": resume_text,
+                "session_id": f"{user_id}_{portal}",
+            },
+        )
+        return resp.json()
+
+
 async def dispatch_scoring(user_id: str, job_lead_ids: list[str]) -> dict:
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.post(

@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user, rate_limiter
-from app.models import Application, Credential, JobListing, Profile, Resume, User
+from app.models import Application, Credential, JobLead, JobListing, Profile, Resume, User
 from app.schemas import ApplicationResponse, ApplicationStatusUpdate, ApplyRequest
+from pydantic import BaseModel
 from arq import create_pool
 from arq.connections import RedisSettings
 from app.config import settings
@@ -387,6 +388,110 @@ async def create_application_from_lead(
         "job_listing_id": str(listing.id),
         "status": app.status,
     }
+
+
+class QueueApprovalRequest(BaseModel):
+    user_id: str
+    job_lead: dict
+    screening_result: dict
+    search_profile_id: str | None = None
+
+
+@router.post("/queue-approval")
+async def queue_for_approval(
+    body: QueueApprovalRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Called by ADK orchestrator to create an Application record pending user approval."""
+    try:
+        user_uuid = uuid.UUID(body.user_id)
+    except ValueError:
+        return {"status": "error", "reason": "invalid user_id"}
+
+    url = (body.job_lead.get("url") or "").strip()
+    portal = body.job_lead.get("portal", "naukri")
+    title = body.job_lead.get("title", "")
+    company = body.job_lead.get("company", "")
+
+    # 1) Find or create JobLead
+    job_lead = None
+    if url:
+        result = await db.execute(
+            select(JobLead).where(JobLead.url == url, JobLead.user_id == user_uuid)
+        )
+        job_lead = result.scalar_one_or_none()
+
+    if not job_lead:
+        job_lead = JobLead(
+            user_id=user_uuid,
+            portal=portal,
+            title=title,
+            company=company,
+            location=body.job_lead.get("location"),
+            url=url or None,
+            jd_text=body.job_lead.get("description", ""),
+            raw_data=body.job_lead,
+        )
+        db.add(job_lead)
+        await db.flush()
+
+    # 2) Find or create JobListing from JobLead
+    listing_result = await db.execute(
+        select(JobListing).where(
+            JobListing.user_id == user_uuid,
+            JobListing.external_job_id == job_lead.normalized_hash,
+        )
+    )
+    listing = listing_result.scalar_one_or_none()
+    if not listing:
+        listing = JobListing(
+            user_id=user_uuid,
+            platform=portal,
+            external_job_id=job_lead.normalized_hash,
+            title=title,
+            company=company,
+            location=body.job_lead.get("location"),
+            description=body.job_lead.get("description", ""),
+            apply_url=url or None,
+            salary_info=body.job_lead.get("salary", ""),
+            status="discovered",
+            match_score=body.screening_result.get("fit_score", 0) / 100.0,
+        )
+        db.add(listing)
+        await db.flush()
+
+    # 3) Idempotency key
+    idempotency_key = f"apply:{user_uuid}:{listing.id}"
+    existing = await db.execute(
+        select(Application).where(Application.idempotency_key == idempotency_key)
+    )
+    if existing.scalar_one_or_none():
+        return {"status": "already_queued", "application_id": str(existing.scalar_one_or_none().id)}
+
+    # 4) Find default resume
+    res_result = await db.execute(
+        select(Resume).where(Resume.user_id == user_uuid, Resume.is_default == True)
+    )
+    resume = res_result.scalar_one_or_none()
+
+    # 5) Create Application in pending_approval status
+    app = Application(
+        user_id=user_uuid,
+        job_listing_id=listing.id,
+        resume_id=resume.id if resume else None,
+        status="pending",
+        approval_status="pending_approval",
+        idempotency_key=idempotency_key,
+        answers_used={
+            "screening": body.screening_result,
+            "job_lead": body.job_lead,
+        },
+    )
+    db.add(app)
+    await db.commit()
+    await db.refresh(app)
+
+    return {"status": "queued", "application_id": str(app.id)}
 
 
 @router.post("/{application_id}/generate-cover-letter")

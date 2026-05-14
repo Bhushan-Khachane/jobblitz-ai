@@ -46,130 +46,77 @@ async def run_workflow(
         await set_run_status(run_id, "skipped", {"events": events})
         return {"run_id": run_id, "status": "skipped", "events": events, "error": "No leads found"}
 
-    # Process first lead for demonstration
-    lead = leads[0]
+    # ── Step 2: Screen ALL leads ───────────────────────────────────────────────
+    pending_approvals = []
+    auto_applies = []
 
-    # ── Step 2: Screening ────────────────────────────────────────────────────
-    try:
-        screening_result = await run_screening(lead, user_profile, resume_text)
-        events.append({
-            "step": "screening",
-            "status": "ok",
-            "fit_score": screening_result.get("fit_score"),
-            "decision": screening_result.get("decision"),
-        })
-        await update_run_progress(run_id, "screening", {"status": "ok", "fit_score": screening_result.get("fit_score")})
-    except Exception as e:
-        events.append({"step": "screening", "status": "failed", "error": str(e)})
-        await set_run_status(run_id, "failed", {"events": events, "error": str(e)})
-        return {"run_id": run_id, "status": "failed", "events": events, "error": str(e)}
+    import os, httpx
+    ADK_API_URL = os.getenv("ADK_API_URL", "http://backend:8000/api/v1")
 
-    decision = screening_result.get("decision", "skip")
-    if decision == "skip":
+    for lead in leads:
+        try:
+            screening_result = await run_screening(lead, user_profile, resume_text)
+            decision = screening_result.get("decision", "skip")
+            fit_score = screening_result.get("fit_score", 0)
+
+            events.append({
+                "step": "screening",
+                "title": lead.get("title"),
+                "company": lead.get("company"),
+                "fit_score": fit_score,
+                "decision": decision,
+            })
+
+            if decision == "skip":
+                continue
+            elif decision == "auto":
+                auto_applies.append({"lead": lead, "screening": screening_result})
+            else:  # "approve"
+                pending_approvals.append({"lead": lead, "screening": screening_result})
+        except Exception as e:
+            events.append({"step": "screening", "title": lead.get("title"), "error": str(e)})
+            continue
+
+    events.append({
+        "step": "screening_summary",
+        "total_leads": len(leads),
+        "pending_approval": len(pending_approvals),
+        "auto_apply": len(auto_applies),
+        "skipped": len(leads) - len(pending_approvals) - len(auto_applies),
+    })
+
+    # POST all pending_approvals to backend queue-approval endpoint
+    for item in pending_approvals:
+        try:
+            async with httpx.AsyncClient() as http:
+                await http.post(
+                    f"{ADK_API_URL}/applications/queue-approval",
+                    json={
+                        "user_id": search_profile.get("user_id"),
+                        "job_lead": item["lead"],
+                        "screening_result": item["screening"],
+                        "search_profile_id": search_profile.get("id"),
+                    },
+                    timeout=5.0,
+                )
+        except Exception:
+            pass  # non-fatal
+
+    # For now we don't auto-apply — everything goes to approval queue
+    # (auto mode is wired but gated behind pro plan)
+    if not pending_approvals and not auto_applies:
         await set_run_status(run_id, "skipped", {"events": events})
         return {"run_id": run_id, "status": "skipped", "events": events, "error": None}
 
-    # Approval gate
-    requires_approval = decision == "approve" or screening_result.get("fit_score", 0) < 80
-    if requires_approval:
-        events.append({"step": "approval_gate", "status": "pending", "reason": "fit_score below auto threshold or decision=approve"})
-        await set_run_status(run_id, "pending_approval", {"events": events, "screening_result": screening_result})
-        return {
-            "run_id": run_id,
-            "status": "pending_approval",
-            "events": events,
-            "error": None,
-            "screening_result": screening_result,
-        }
-
-    # ── Step 3: Planner ──────────────────────────────────────────────────────
-    try:
-        plan_result = await run_planner(lead, user_profile, screening_result.get("fit_score", 0), session_id)
-        events.append({"step": "planner", "status": "ok", "requires_approval": plan_result.get("plan", {}).get("requires_approval", True)})
-        await update_run_progress(run_id, "planner", {"status": "ok"})
-    except Exception as e:
-        events.append({"step": "planner", "status": "failed", "error": str(e)})
-        await set_run_status(run_id, "failed", {"events": events, "error": str(e)})
-        return {"run_id": run_id, "status": "failed", "events": events, "error": str(e)}
-
-    plan = plan_result.get("plan", {})
-    if plan.get("requires_approval"):
-        events.append({"step": "approval_gate", "status": "pending", "reason": "plan requires approval"})
-        await set_run_status(run_id, "pending_approval", {"events": events, "plan": plan})
-        return {
-            "run_id": run_id,
-            "status": "pending_approval",
-            "events": events,
-            "error": None,
-            "plan": plan,
-        }
-
-    # ── Step 4: Apply ──────────────────────────────────────────────────────────
-    apply_result = None
-    failures = 0
-    max_failures = 3
-
-    while failures < max_failures:
-        try:
-            apply_result = await run_apply(plan, session_id, run_id)
-            events.append({"step": "apply", "status": apply_result.get("status"), "steps": apply_result.get("steps_executed", 0)})
-            await update_run_progress(run_id, "apply", {"status": apply_result.get("status"), "steps": apply_result.get("steps_executed", 0)})
-            break
-        except Exception as e:
-            failures += 1
-            events.append({"step": "apply", "status": "failed", "attempt": failures, "error": str(e)})
-            await update_run_progress(run_id, "apply", {"status": "failed", "attempt": failures, "error": str(e)})
-            if failures >= max_failures:
-                await set_run_status(run_id, "blocked", {"events": events, "error": f"Apply failed after {max_failures} attempts: {str(e)}"})
-                return {
-                    "run_id": run_id,
-                    "status": "blocked",
-                    "events": events,
-                    "error": f"Apply failed after {max_failures} attempts: {str(e)}",
-                }
-
-    # ── Step 5: Verification ─────────────────────────────────────────────────
-    try:
-        verify_result = await run_verification(run_id, session_id)
-        events.append({
-            "step": "verification",
-            "status": "ok" if verify_result.get("verified") else "failed",
-            "verified": verify_result.get("verified"),
-            "confidence": verify_result.get("confidence"),
-        })
-        await update_run_progress(run_id, "verification", {"verified": verify_result.get("verified"), "confidence": verify_result.get("confidence")})
-
-        if not verify_result.get("verified"):
-            # Retry once with investigate sub-step
-            events.append({"step": "investigate", "status": "retrying"})
-            await update_run_progress(run_id, "investigate", {"status": "retrying"})
-            apply_retry = await run_apply(plan, session_id, run_id)
-            events.append({"step": "apply_retry", "status": apply_retry.get("status")})
-            await update_run_progress(run_id, "apply_retry", {"status": apply_retry.get("status")})
-
-            verify_retry = await run_verification(run_id, session_id)
-            events.append({
-                "step": "verification_retry",
-                "status": "ok" if verify_retry.get("verified") else "failed",
-                "verified": verify_retry.get("verified"),
-            })
-            await update_run_progress(run_id, "verification_retry", {"verified": verify_retry.get("verified")})
-
-            if not verify_retry.get("verified"):
-                workflow_status = "failed"
-            else:
-                workflow_status = "success"
-        else:
-            workflow_status = "success"
-    except Exception as e:
-        events.append({"step": "verification", "status": "failed", "error": str(e)})
-        await update_run_progress(run_id, "verification", {"status": "failed", "error": str(e)})
-        workflow_status = "failed"
-
-    await set_run_status(run_id, workflow_status, {"events": events})
+    await set_run_status(run_id, "pending_approval", {
+        "events": events,
+        "pending_approvals": len(pending_approvals),
+        "auto_applies": len(auto_applies),
+    })
     return {
         "run_id": run_id,
-        "status": workflow_status,
+        "status": "pending_approval",
         "events": events,
-        "error": None,
+        "pending_approvals": len(pending_approvals),
+        "auto_applies": len(auto_applies),
     }

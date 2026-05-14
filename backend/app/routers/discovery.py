@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user, rate_limiter
-from app.models import JobLead, JobSearchProfile, JobScore, User
+from app.models import JobLead, JobSearchProfile, JobScore, Profile, Resume, User
 from app.schemas import JobLeadResponse, JobSearchProfileCreate, JobSearchProfileResponse, StandardRunResponse
-from app.services.agent_dispatcher import dispatch_discovery
+from app.services.agent_dispatcher import dispatch_workflow
 from app.services.rate_enforcer import get_rate_status
 
 router = APIRouter(prefix="/discovery", tags=["discovery"])
@@ -47,7 +47,33 @@ async def run_discovery(
     db.add(profile)
     await db.flush()
 
-    # Dispatch to ADK orchestrator
+    # Fetch user profile and resume for the workflow
+    prof_result = await db.execute(select(Profile).where(Profile.user_id == user.id))
+    prof = prof_result.scalar_one_or_none()
+
+    user_profile = {
+        "id": str(user.id),
+        "email": user.email,
+        "full_name": user.full_name,
+        "headline": prof.headline if prof else "",
+        "skills": prof.skills if prof else [],
+        "experience": prof.experience if prof else {},
+        "summary": prof.summary if prof else "",
+        "notice_period_days": prof.notice_period_days if prof else 30,
+    }
+
+    # Fetch resume text
+    resume_text = ""
+    res_result = await db.execute(
+        select(Resume).where(Resume.user_id == user.id, Resume.is_default == True)
+    )
+    resume = res_result.scalar_one_or_none()
+    if resume and hasattr(resume, "resume_text"):
+        resume_text = resume.resume_text or ""
+    elif resume and hasattr(resume, "parsed_content"):
+        resume_text = resume.parsed_content or ""
+
+    # Dispatch full workflow to ADK orchestrator
     adk_search_profile = {
         "id": str(profile.id),
         "keywords": keywords,
@@ -58,13 +84,19 @@ async def run_discovery(
         "user_id": str(user.id),
     }
 
-    adk_result = await dispatch_discovery(str(user.id), portal, adk_search_profile)
+    adk_result = await dispatch_workflow(
+        str(user.id),
+        portal,
+        adk_search_profile,
+        user_profile,
+        resume_text,
+    )
     run_id = adk_result.get("run_id")
 
     return {
         "run_id": run_id,
         "status": "queued",
-        "events": [{"step": "discovery_queued", "profile_id": str(profile.id)}],
+        "events": [{"step": "workflow_queued", "profile_id": str(profile.id)}],
         "error": None,
     }
 
