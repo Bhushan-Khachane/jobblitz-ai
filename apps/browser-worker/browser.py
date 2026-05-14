@@ -183,4 +183,36 @@ def state_load(name: str, session_id: str = "default") -> str:
 
 
 def cookie_import_file(cookie_file: str, session_id: str = "default") -> str:
-    return "ok"
+    async def _import():
+        with open(cookie_file, "r") as f:
+            raw_cookies = json.load(f)
+
+        # Normalize EditThisCookie format to Playwright format
+        playwright_cookies = []
+        for c in raw_cookies:
+            cookie = {
+                "name": c.get("name", ""),
+                "value": c.get("value", ""),
+                "domain": c.get("domain", ""),
+                "path": c.get("path", "/"),
+                "httpOnly": c.get("httpOnly", False),
+                "secure": c.get("secure", False),
+            }
+            # EditThisCookie uses "expirationDate" (float), playwright uses "expires"
+            if "expirationDate" in c:
+                cookie["expires"] = int(c["expirationDate"])
+            elif "expires" in c:
+                cookie["expires"] = int(c["expires"])
+            # Skip cookies with empty name or value
+            if cookie["name"] and cookie["value"]:
+                playwright_cookies.append(cookie)
+
+        if not playwright_cookies:
+            return "no_valid_cookies"
+
+        # Get or create context for this session
+        page = await _get_page(session_id)
+        ctx = page.context
+        await ctx.add_cookies(playwright_cookies)
+        return f"imported_{len(playwright_cookies)}_cookies"
+    return _run_sync(_import())
