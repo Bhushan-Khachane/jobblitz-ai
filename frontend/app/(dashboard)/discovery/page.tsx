@@ -39,7 +39,7 @@ export default function DiscoveryPage() {
   // Fetch leads when run reaches terminal state
   useEffect(() => {
     if (
-      runStatus?.status === "pending_approval" &&
+      (runStatus?.status === "pending_approval" || runStatus?.status === "completed") &&
       leads.length === 0
     ) {
       discoveryAPI
@@ -75,12 +75,13 @@ export default function DiscoveryPage() {
         });
       }
 
-      setRunId(result.run_id);
-
-      // If already completed, skip polling and refresh leads immediately
       if (result.status === "completed") {
+        // Already done — don't start polling, just load leads directly
         const res = await discoveryAPI.jobLeads({ portal, page: 1, page_size: 20 });
         setLeads(res.items || []);
+        setRunId(null); // don't trigger useRunStatus polling
+      } else {
+        setRunId(result.run_id); // only poll if still running
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || "Discovery failed");
@@ -91,7 +92,7 @@ export default function DiscoveryPage() {
 
   const handleApprove = async (leadId: string) => {
     try {
-      await discoveryAPI.jobLeads();
+      await discoveryAPI.approveLead(leadId);
       setLeads((prev) =>
         prev.map((l) => (l.id === leadId ? { ...l, decision: "approve" } : l))
       );
@@ -101,9 +102,14 @@ export default function DiscoveryPage() {
   };
 
   const handleSkip = async (leadId: string) => {
-    setLeads((prev) =>
-      prev.map((l) => (l.id === leadId ? { ...l, decision: "skip" } : l))
-    );
+    try {
+      await discoveryAPI.skipLead(leadId);
+      setLeads((prev) =>
+        prev.map((l) => (l.id === leadId ? { ...l, decision: "skip" } : l))
+      );
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to skip");
+    }
   };
 
   const statusLabel = () => {
@@ -115,6 +121,8 @@ export default function DiscoveryPage() {
         return `📋 Running workflow...`;
       case "pending_approval":
         return `✅ ${runStatus.pending_approvals ?? 0} jobs sent to Approval Queue`;
+      case "completed":
+        return `✅ Discovery complete — ${leads.length} jobs found`;
       case "skipped":
         return "No matching jobs found. Try different keywords.";
       case "failed":
@@ -220,7 +228,7 @@ export default function DiscoveryPage() {
       {(isPolling || runStatus) && (
         <div
           className={`p-3 rounded-lg text-sm border ${
-            runStatus?.status === "pending_approval"
+            runStatus?.status === "pending_approval" || runStatus?.status === "completed"
               ? "bg-green-500/10 text-green-400 border-green-500/20"
               : runStatus?.status === "skipped" || runStatus?.status === "failed"
                 ? "bg-red-500/10 text-red-400 border-red-500/20"

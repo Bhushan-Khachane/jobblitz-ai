@@ -335,6 +335,28 @@ async def list_job_leads(
     }
 
 
+@router.post("/job-leads/{lead_id}/decision")
+async def set_lead_decision(
+    lead_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import update
+
+    decision = body.get("decision")
+    if decision not in ("approve", "skip"):
+        raise HTTPException(status_code=400, detail="decision must be approve or skip")
+
+    await db.execute(
+        update(JobLead)
+        .where(JobLead.id == lead_id, JobLead.user_id == user.id)
+        .values(processed=True, raw_data={"decision": decision})
+    )
+    await db.commit()
+    return {"ok": True, "decision": decision}
+
+
 INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "jobblitz-internal-secret")
 
 

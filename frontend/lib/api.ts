@@ -254,6 +254,12 @@ export const discoveryAPI = {
       pending_approvals?: number;
       error?: string | null;
     }>(`/discovery/run/${runId}/status`).then((r) => r.data),
+
+  approveLead: (leadId: string) =>
+    api.post<{ ok: boolean; decision: string }>(`/discovery/job-leads/${leadId}/decision`, { decision: "approve" }).then((r) => r.data),
+
+  skipLead: (leadId: string) =>
+    api.post<{ ok: boolean; decision: string }>(`/discovery/job-leads/${leadId}/decision`, { decision: "skip" }).then((r) => r.data),
 };
 
 // ── Applications API ────────────────────────────────────────────────────────
