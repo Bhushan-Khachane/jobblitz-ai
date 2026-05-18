@@ -32,6 +32,8 @@
     .btn-login  { background: #1e293b; color: #6366f1; border: 1px solid #6366f1; }
     .limits { font-size: 11px; color: #475569; margin-top: 8px; line-height: 1.6; }
     .limits span { color: #94a3b8; }
+    .env-select { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; font-size: 12px; margin-bottom: 10px; }
+    .env-label { font-size: 11px; color: #64748b; margin-bottom: 4px; }
   </style>
 </head>
 <body>
@@ -48,6 +50,13 @@
     <div class="stat-row"><span class="stat-label">Today (LinkedIn)</span><span class="stat-value" id="count-linkedin">0 / 8</span></div>
     <div class="stat-row"><span class="stat-label">Today (Indeed)</span><span class="stat-value" id="count-indeed">0 / 20</span></div>
   </div>
+
+  <p class="env-label">Environment</p>
+  <select class="env-select" id="env-select">
+    <option value="local">Local (localhost)</option>
+    <option value="staging">Staging (api-staging.jobblitz.ai)</option>
+    <option value="prod">Production (api.jobblitz.ai)</option>
+  </select>
 
   <button class="btn btn-start" id="btn-start">Start Automation</button>
   <button class="btn btn-stop"  id="btn-stop"  style="display:none">Stop</button>

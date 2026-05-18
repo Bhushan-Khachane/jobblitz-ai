@@ -24,7 +24,10 @@
     "https://www.shine.com/*",
     "https://unstop.com/*",
     "http://localhost:8000/*",
-    "https://api.jobblitz.ai/*"
+    "https://api.jobblitz.ai/*",
+    "https://api-staging.jobblitz.ai/*",
+    "https://app.jobblitz.ai/*",
+    "https://app-staging.jobblitz.ai/*"
   ],
   "background": {
     "service_worker": "src/background.js",

@@ -1,10 +1,20 @@
 // -- Config ---------------------------------------------------------------
-const API_BASE = 'http://localhost:8000';
+const DEFAULT_API_BASE = 'http://localhost:8000';
 const WS_PATH  = '/ws/extension';
 let ws = null;
 let reconnectTimer = null;
 let isRunning = false;
 let dailyCounts = {};
+
+async function getApiBase() {
+  const data = await chrome.storage.local.get('apiBase');
+  return data.apiBase || DEFAULT_API_BASE;
+}
+
+async function getFrontendBase() {
+  const data = await chrome.storage.local.get('frontendBase');
+  return data.frontendBase || 'http://localhost:3000';
+}
 
 // -- Rate limits (conservative safe defaults) ----------------------------
 const LIMITS = {
@@ -67,7 +77,8 @@ async function connectWebSocket() {
   if (!authToken) { console.log('[JobBlitz] No auth token'); return; }
   if (ws && ws.readyState === WebSocket.OPEN) return;
 
-  const wsUrl = API_BASE.replace('http', 'ws') + WS_PATH + `?token=${authToken}`;
+  const apiBase = await getApiBase();
+  const wsUrl = apiBase.replace('http', 'ws') + WS_PATH + `?token=${authToken}`;
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
@@ -251,7 +262,13 @@ function applyToJob(coverLetter, formData, platform) {
 
 // -- Init ------------------------------------------------------------------
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.set({ automationStatus: 'stopped', wsStatus: 'disconnected', isRunning: false });
+  chrome.storage.local.set({
+    automationStatus: 'stopped',
+    wsStatus: 'disconnected',
+    isRunning: false,
+    apiBase: DEFAULT_API_BASE,
+    frontendBase: 'http://localhost:3000',
+  });
   console.log('[JobBlitz] Extension installed');
 });
 
@@ -262,6 +279,15 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     isRunning = false; chrome.storage.local.set({ automationStatus: 'stopped' }); if (ws) ws.close(); respond({ ok: true });
   } else if (msg.type === 'set_token') {
     chrome.storage.local.set({ authToken: msg.token }); connectWebSocket(); respond({ ok: true });
+  } else if (msg.type === 'set_env') {
+    const updates = {};
+    if (msg.apiBase) updates.apiBase = msg.apiBase;
+    if (msg.frontendBase) updates.frontendBase = msg.frontendBase;
+    chrome.storage.local.set(updates).then(() => respond({ ok: true }));
+    return true;
+  } else if (msg.type === 'get_env') {
+    chrome.storage.local.get(['apiBase', 'frontendBase'], data => respond(data));
+    return true;
   } else if (msg.type === 'get_status') {
     chrome.storage.local.get(['automationStatus', 'wsStatus', 'authToken'], data => respond(data));
     return true;
