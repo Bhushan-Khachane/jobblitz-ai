@@ -60,7 +60,14 @@ async def scrape_linkedin_jobs(
         if not cards:
             cards = await page.query_selector_all(".job-search-card")
         if not cards:
-            logger.warning("LinkedIn scraper found 0 cards — selectors may be outdated")
+            try:
+                await page.screenshot(path="/tmp/linkedin_debug.png", full_page=True)
+                page_html = await page.content()
+                logger.warning(f"LinkedIn scraper: 0 cards found. URL={url}")
+                logger.warning(f"LinkedIn page title: {await page.title()}")
+                logger.warning(f"LinkedIn page HTML snippet: {page_html[:2000]}")
+            except Exception:
+                pass
             return results
 
         for card in cards[:max_results]:
@@ -85,6 +92,11 @@ async def scrape_linkedin_jobs(
                     or await card.query_selector("a.base-card__full-link")
                 )
                 date_el = await card.query_selector("time")
+                salary_el = (
+                    await card.query_selector(".job-card-container__metadata-wrapper li")
+                    or await card.query_selector("[class*='salary']")
+                    or await card.query_selector(".salary")
+                )
 
                 title = (await title_el.inner_text()).strip() if title_el else ""
                 company = (await company_el.inner_text()).strip() if company_el else ""
@@ -97,12 +109,13 @@ async def scrape_linkedin_jobs(
                     if m:
                         ext_id = m.group(1)
 
-                # Experience from metadata wrapper
+                # Experience & salary from metadata wrapper
                 exp_el = (
                     await card.query_selector(".job-card-container__metadata-wrapper li")
                     or await card.query_selector("[class*='experience']")
                 )
                 experience_text = ""
+                salary_text = ""
                 if exp_el:
                     li_text = (await exp_el.inner_text()).strip()
                     # LinkedIn metadata lists often contain "·" separators
@@ -110,7 +123,8 @@ async def scrape_linkedin_jobs(
                     for part in parts:
                         if any(kw in part.lower() for kw in ("year", "month", "exp")):
                             experience_text = part
-                            break
+                        if any(kw in part.lower() for kw in ("salary", "₹", "$", "€", "pay", "compensation")):
+                            salary_text = part
 
                 results.append({
                     "title": title,
@@ -121,6 +135,7 @@ async def scrape_linkedin_jobs(
                     "apply_url": href or "",
                     "external_job_id": ext_id,
                     "posted_date": posted,
+                    "salary_info": salary_text,
                     "platform": "linkedin",
                 })
             except Exception:
