@@ -60,13 +60,15 @@ class ExtensionManager:
             logger.warning(f"Received apply_status with missing app_id or status: app_id={app_id}")
             return
 
+        # Map extension statuses to valid Application model status values
+        # Valid DB statuses: pending / approved / submitted / failed / interview / rejected / accepted / skipped
         STATUS_MAP = {
-            "applied":      "applied",
+            "applied":      "submitted",
             "failed":       "failed",
             "rate_limited": "pending",
-            "skipped":      "pending",
+            "skipped":      "skipped",
             "error":        "failed",
-            "starting":     "in_progress",
+            "starting":     "pending",
         }
         db_status = STATUS_MAP.get(status, "pending")
 
@@ -80,8 +82,8 @@ class ExtensionManager:
                 app = result.scalar_one_or_none()
                 if app:
                     app.status = db_status
-                    if hasattr(app, "status_message"):
-                        app.status_message = message[:500] if message else ""
+                    if db_status in ("failed", "skipped") and message:
+                        app.error_message = message[:500]
                     await db.commit()
                     logger.info(f"Application {app_id} status → {db_status} (from extension)")
                 else:

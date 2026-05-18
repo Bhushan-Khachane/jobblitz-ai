@@ -157,22 +157,64 @@ class BrowserPool:
             await temp_ctx.add_init_script(STEALTH_INIT_SCRIPT)
             return temp_ctx
 
+    async def acquire_for_user(self, user_id: str, task_type: str = "apply", user_tier: str = "free") -> BrowserContext:
+        """Create an isolated context with a sticky per-user proxy for fallback applies.
+
+        This context is NOT returned to the shared pool — it is closed after use.
+        """
+        if not self._initialized:
+            await self.initialize(task_type, user_tier)
+
+        from app.services.proxy_service import get_user_proxy
+        user_proxy = get_user_proxy(user_id)
+        viewport = random.choice(VIEWPORTS)
+        user_agent = random.choice(USER_AGENTS)
+
+        ctx_kwargs: dict[str, Any] = {
+            "viewport": viewport,
+            "user_agent": user_agent,
+            "locale": "en-IN",
+            "timezone_id": "Asia/Kolkata",
+            "extra_http_headers": {
+                "Accept-Language": "en-IN,en;q=0.9,hi;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+            },
+        }
+        if user_proxy:
+            ctx_kwargs["proxy"] = user_proxy
+            logger.info(f"Using sticky proxy for user={user_id} fallback apply")
+        else:
+            if self._proxy_url:
+                ctx_kwargs["proxy"] = {"server": self._proxy_url}
+
+        ctx = await self._browser.new_context(**ctx_kwargs)
+        await ctx.add_init_script(STEALTH_INIT_SCRIPT)
+        logger.debug(f"Created isolated context for user={user_id} (task={task_type})")
+        return ctx
+
     def available_count(self) -> int:
         """Return number of available contexts in the pool."""
         return self._pool.qsize()
 
     async def release(self, ctx: BrowserContext) -> None:
-        """Return a browser context to the pool after clearing cookies."""
+        """Return a browser context to the pool after clearing cookies.
+
+        User-specific contexts (from acquire_for_user) are closed directly
+        and NOT returned to the shared pool.
+        """
         try:
             await ctx.clear_cookies()
-            # Close all pages in the context
             for page in ctx.pages:
                 await page.close()
-            await self._pool.put(ctx)
-            logger.debug(f"Released browser context (pool available: {self._pool.qsize()})")
+
+            try:
+                await self._pool.put(ctx)
+                logger.debug(f"Released browser context (pool available: {self._pool.qsize()})")
+            except asyncio.QueueFull:
+                logger.debug("Pool full — closing extra context")
+                await ctx.close()
         except Exception as e:
             logger.warning(f"Failed to release browser context: {e}")
-            # If release fails, create a replacement context
             if self._browser:
                 try:
                     new_ctx = await self._browser.new_context(

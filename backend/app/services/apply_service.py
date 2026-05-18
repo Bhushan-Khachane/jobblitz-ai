@@ -387,7 +387,7 @@ async def apply_to_job(
     answers: dict[str, str] = {}
 
     from app.services.browser_pool import browser_pool
-    ctx = await browser_pool.acquire(task_type=f"{platform}_apply")
+    ctx = await browser_pool.acquire_for_user(str(user_id), task_type=f"{platform}_apply")
     try:
         page = await ctx.new_page()
         try:
