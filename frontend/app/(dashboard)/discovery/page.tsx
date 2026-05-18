@@ -84,6 +84,25 @@ export default function DiscoveryPage() {
         setRunId(result.run_id); // only poll if still running
       }
     } catch (err: any) {
+      // If /run threw (network error / ADK unreachable), try direct fallback
+      try {
+        const fallback = await discoveryAPI.runDirect({
+          keywords,
+          location,
+          portal,
+          years_experience: parseInt(experience) || 2,
+          job_age_days: parseInt(jobAge) || 7,
+        });
+        if (fallback.status === "completed") {
+          const res = await discoveryAPI.jobLeads({ portal, page: 1, page_size: 20 });
+          setLeads(res.items || []);
+          setRunId(null);
+          setError(null);
+          return;
+        }
+      } catch {
+        // direct also failed — show original error
+      }
       setError(err.response?.data?.detail || "Discovery failed");
     } finally {
       setLoading(false);

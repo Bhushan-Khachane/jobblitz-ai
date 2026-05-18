@@ -321,6 +321,16 @@ async def list_job_leads(
         count_q = count_q.where(JobLead.processed == processed)
     if status:
         query = query.where(JobScore.decision == status)
+        count_q = (
+            select(func.count(JobLead.id))
+            .select_from(JobLead)
+            .join(JobScore, JobScore.job_lead_id == JobLead.id)
+            .where(JobLead.user_id == user.id, JobScore.decision == status)
+        )
+        if portal:
+            count_q = count_q.where(JobLead.portal == portal)
+        if processed is not None:
+            count_q = count_q.where(JobLead.processed == processed)
 
     total_result = await db.execute(count_q)
     total = total_result.scalar() or 0
@@ -334,6 +344,9 @@ async def list_job_leads(
         lead = row[0] if hasattr(row, '__iter__') else row
         fit_score = row[1] if hasattr(row, '__iter__') else None
         score_decision = row[2] if hasattr(row, '__iter__') else None
+        # Fallback: manual decisions stored in raw_data when no JobScore exists
+        if not score_decision and lead.raw_data and isinstance(lead.raw_data, dict):
+            score_decision = lead.raw_data.get("decision")
         d = JobLeadResponse.model_validate(lead).model_dump()
         d["fit_score"] = fit_score
         d["decision"] = score_decision

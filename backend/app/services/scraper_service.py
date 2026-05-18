@@ -97,10 +97,26 @@ async def scrape_linkedin_jobs(
                     if m:
                         ext_id = m.group(1)
 
+                # Experience from metadata wrapper
+                exp_el = (
+                    await card.query_selector(".job-card-container__metadata-wrapper li")
+                    or await card.query_selector("[class*='experience']")
+                )
+                experience_text = ""
+                if exp_el:
+                    li_text = (await exp_el.inner_text()).strip()
+                    # LinkedIn metadata lists often contain "·" separators
+                    parts = [p.strip() for p in li_text.replace("·", "|").split("|")]
+                    for part in parts:
+                        if any(kw in part.lower() for kw in ("year", "month", "exp")):
+                            experience_text = part
+                            break
+
                 results.append({
                     "title": title,
                     "company": company,
                     "location": loc,
+                    "experience": experience_text,
                     "description": "",
                     "apply_url": href or "",
                     "external_job_id": ext_id,
