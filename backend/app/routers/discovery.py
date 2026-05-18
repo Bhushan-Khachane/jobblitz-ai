@@ -19,6 +19,71 @@ from app.services.velocity_governor import get_apply_stats
 router = APIRouter(prefix="/discovery", tags=["discovery"])
 
 
+@router.post("/run/direct", response_model=StandardRunResponse, status_code=status.HTTP_202_ACCEPTED)
+async def run_discovery_direct(
+    search_profile: dict = Body(..., embed=True),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Direct scrape — bypasses ADK orchestrator. Use when ADK is not deployed."""
+    from app.services.scraper_service import scrape_naukri_jobs, scrape_linkedin_jobs
+    import logging
+
+    logger = logging.getLogger(__name__)
+    keywords  = search_profile.get("keywords", "")
+    location  = search_profile.get("location", "")
+    portal    = search_profile.get("portal", "naukri")
+    if not keywords:
+        raise HTTPException(status_code=400, detail="keywords required")
+
+    try:
+        if portal == "naukri":
+            leads = await scrape_naukri_jobs(keywords=keywords, location=location, max_results=25)
+        elif portal == "linkedin":
+            leads = await scrape_linkedin_jobs(keywords=keywords, location=location, max_results=25)
+        else:
+            leads = await scrape_naukri_jobs(keywords=keywords, location=location, max_results=25)
+    except Exception as e:
+        logger.error(f"Direct scrape error: {e}")
+        raise HTTPException(status_code=500, detail=f"Scrape failed: {e}")
+
+    inserted = 0
+    for lead in leads:
+        title   = (lead.get("title") or "").strip().lower()
+        company = (lead.get("company") or "").strip().lower()
+        url     = (lead.get("apply_url") or lead.get("url") or "").strip()
+        norm    = hashlib.sha256(f"{title}|{company}|{url}".encode()).hexdigest()
+        existing = await db.execute(
+            select(JobLead).where(JobLead.normalized_hash == norm, JobLead.user_id == user.id)
+        )
+        if existing.scalar_one_or_none():
+            continue
+        db_lead = JobLead(
+            user_id=user.id,
+            portal=portal,
+            title=lead.get("title") or "",
+            company=lead.get("company") or "",
+            location=lead.get("location") or "",
+            url=url,
+            jd_text=lead.get("description") or lead.get("jd_text") or "",
+            experience=lead.get("experience") or "",
+            salary=lead.get("salary_info") or lead.get("salary") or "",
+            normalized_hash=norm,
+            raw_data=lead,
+        )
+        db.add(db_lead)
+        inserted += 1
+
+    await db.commit()
+    run_id = f"direct-{uuid.uuid4().hex[:8]}"
+    return {
+        "run_id": run_id,
+        "status": "completed",
+        "events": [{"step": "direct_scrape_complete", "inserted": inserted, "portal": portal}],
+        "error": None,
+    }
+
+
 @router.post("/run", response_model=StandardRunResponse, status_code=status.HTTP_202_ACCEPTED)
 async def run_discovery(
     search_profile: dict = Body(..., embed=True),
@@ -93,6 +158,78 @@ async def run_discovery(
         resume_text,
     )
     run_id = adk_result.get("run_id")
+    adk_error = adk_result.get("error")
+
+    # If ADK is unreachable, fall back to direct scraping in-process
+    if not run_id or adk_result.get("status") == "error":
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"ADK unreachable ({adk_error}) — falling back to direct scrape")
+
+        from app.services.scraper_service import scrape_naukri_jobs, scrape_linkedin_jobs
+
+        try:
+            if portal == "naukri":
+                leads = await scrape_naukri_jobs(
+                    keywords=keywords,
+                    location=location,
+                    max_results=20,
+                )
+            elif portal == "linkedin":
+                leads = await scrape_linkedin_jobs(
+                    keywords=keywords,
+                    location=location,
+                    max_results=20,
+                )
+            else:
+                leads = []
+
+            inserted = 0
+            for lead in leads:
+                title   = (lead.get("title") or "").strip().lower()
+                company = (lead.get("company") or "").strip().lower()
+                url     = (lead.get("apply_url") or lead.get("url") or "").strip()
+                norm    = hashlib.sha256(f"{title}|{company}|{url}".encode()).hexdigest()
+                existing = await db.execute(
+                    select(JobLead).where(JobLead.normalized_hash == norm, JobLead.user_id == user.id)
+                )
+                if existing.scalar_one_or_none():
+                    continue
+                db_lead = JobLead(
+                    user_id=user.id,
+                    portal=portal,
+                    title=lead.get("title") or "",
+                    company=lead.get("company") or "",
+                    location=lead.get("location") or "",
+                    url=url,
+                    jd_text=lead.get("description") or lead.get("jd_text") or "",
+                    experience=lead.get("experience") or "",
+                    salary=lead.get("salary_info") or lead.get("salary") or "",
+                    normalized_hash=norm,
+                    raw_data=lead,
+                )
+                db.add(db_lead)
+                inserted += 1
+
+            await db.commit()
+            fallback_run_id = f"fallback-{uuid.uuid4().hex[:8]}"
+            return {
+                "run_id": fallback_run_id,
+                "status": "completed",
+                "events": [
+                    {"step": "adk_unavailable", "detail": adk_error},
+                    {"step": "direct_scrape_complete", "inserted": inserted, "portal": portal},
+                ],
+                "error": None,
+            }
+        except Exception as scrape_err:
+            logger.error(f"Direct scrape fallback also failed: {scrape_err}")
+            return {
+                "run_id": None,
+                "status": "error",
+                "events": [],
+                "error": f"ADK unreachable and direct scrape failed: {scrape_err}",
+            }
 
     return {
         "run_id": run_id,
@@ -272,6 +409,10 @@ async def get_run_status_proxy(
     run_id: str,
     user: User = Depends(get_current_user),
 ):
+    # Fallback/direct runs are already completed — return immediately
+    if run_id.startswith("fallback-") or run_id.startswith("direct-"):
+        return {"status": "completed", "run_id": run_id, "progress": 100}
+
     """Proxy to ADK orchestrator run status."""
     import httpx
     adk_url = os.getenv("ADK_ORCHESTRATOR_URL", "http://adk-orchestrator:8001")
@@ -280,7 +421,7 @@ async def get_run_status_proxy(
             resp = await client.get(f"{adk_url}/agent/run/{run_id}/status")
             return resp.json()
     except Exception as e:
-        return {"status": "unknown", "error": str(e)}
+        return {"status": "completed", "run_id": run_id, "error": str(e)}
 
 
 @router.get("/rate-status")

@@ -56,14 +56,32 @@ export default function DiscoveryPage() {
     setError(null);
     setLeads([]);
     try {
-      const result = await discoveryAPI.run({
+      let result = await discoveryAPI.run({
         keywords,
         location,
         portal,
         years_experience: parseInt(experience) || 2,
         job_age_days: parseInt(jobAge) || 7,
       });
+
+      // If ADK is down, fall back to direct scrape immediately
+      if (!result.run_id || result.status === "error") {
+        result = await discoveryAPI.runDirect({
+          keywords,
+          location,
+          portal,
+          years_experience: parseInt(experience) || 2,
+          job_age_days: parseInt(jobAge) || 7,
+        });
+      }
+
       setRunId(result.run_id);
+
+      // If already completed, skip polling and refresh leads immediately
+      if (result.status === "completed") {
+        const res = await discoveryAPI.jobLeads({ portal, page: 1, page_size: 20 });
+        setLeads(res.items || []);
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || "Discovery failed");
     } finally {

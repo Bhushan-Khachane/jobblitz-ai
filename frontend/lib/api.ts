@@ -226,6 +226,18 @@ export const discoveryAPI = {
       { search_profile: searchProfile }
     ).then((r) => r.data),
 
+  runDirect: (searchProfile: {
+    keywords: string;
+    location?: string;
+    portal?: string;
+    years_experience?: number;
+    job_age_days?: number;
+  }) =>
+    api.post<{ run_id: string; status: string; events: unknown[] }>(
+      "/discovery/run/direct",
+      { search_profile: searchProfile }
+    ).then((r) => r.data),
+
   jobLeads: (params?: { portal?: string; page?: number; page_size?: number }) =>
     api.get<{ items: unknown[]; total: number; page: number }>(
       "/discovery/job-leads",
