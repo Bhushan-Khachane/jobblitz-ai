@@ -1,10 +1,20 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import api from '@/lib/api';
 
 interface Props {}
 
 const platforms = ['naukri', 'linkedin', 'indeed', 'internshala', 'shine', 'unstop'];
+
+const PLATFORM_LIMITS: Record<string, number> = {
+  naukri: 15,
+  linkedin: 8,
+  indeed: 20,
+  internshala: 25,
+  shine: 20,
+  unstop: 25,
+};
 
 export default function ExtensionSettingsPage(_props: Props) {
   const [token, setToken] = useState('');
@@ -13,7 +23,7 @@ export default function ExtensionSettingsPage(_props: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem('access_token');
+    const stored = localStorage.getItem('jb_access_token');
     if (stored) {
       setToken(stored);
       // SECURITY: only postMessage to known extension origins
@@ -21,15 +31,10 @@ export default function ExtensionSettingsPage(_props: Props) {
       window.postMessage({ type: 'JOBBLITZ_SET_TOKEN', token: stored }, window.location.origin);
     }
     if (stored) {
-      fetch('/api/v1/users/me/apply-stats', {
-        headers: { Authorization: `Bearer ${stored}` },
-      })
-        .then(async (r) => {
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return r.json();
-        })
-        .then(setStats)
-        .catch((e) => setError(e.message));
+      api
+        .get('/users/me/apply-stats')
+        .then((r) => setStats(r.data))
+        .catch((e) => setError(e.response?.data?.detail || e.message));
     }
   }, []);
 
@@ -41,7 +46,7 @@ export default function ExtensionSettingsPage(_props: Props) {
 
   const platformConfig = useMemo(() => {
     return platforms.map((p) => {
-      const s = stats[p] || { used: 0, limit: 15 };
+      const s = stats[p] || { used: 0, limit: PLATFORM_LIMITS[p] || 15 };
       const pct = Math.min((s.used / s.limit) * 100, 100);
       return { key: p, label: p, ...s, pct };
     });
