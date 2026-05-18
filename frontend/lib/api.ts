@@ -65,6 +65,11 @@ interface Profile {
   preferred_job_titles: string[] | null;
   preferred_locations: string[] | null;
   expected_salary_lpa: number | null;
+  salary_min_lpa: number | null;
+  salary_max_lpa: number | null;
+  experience_level: string | null;
+  remote_only: boolean;
+  target_portals: string[] | null;
   notice_period_days: number | null;
   created_at: string;
   updated_at: string;

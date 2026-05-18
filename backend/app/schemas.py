@@ -76,6 +76,11 @@ class ProfileCreate(BaseModel):
     preferred_job_titles: list[str] | None = None
     preferred_locations: list[str] | None = None
     expected_salary_lpa: float | None = None
+    salary_min_lpa: float | None = None
+    salary_max_lpa: float | None = None
+    experience_level: str | None = Field(None, pattern="^(entry|mid|senior|lead)$")
+    remote_only: bool | None = None
+    target_portals: list[str] | None = None
     notice_period_days: int | None = None
 
 
