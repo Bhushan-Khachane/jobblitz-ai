@@ -115,6 +115,18 @@ async def scrape_linkedin_jobs(
     return results
 
 
+import logging
+logger = logging.getLogger(__name__)
+
+CARD_SELECTORS = [
+    ".srp-jobtuple-wrapper",
+    "article.jobTuple",
+    ".cust-job-tuple",
+    "[data-job-id]",
+    ".job-container",
+]
+
+
 async def scrape_naukri_jobs(
     keywords: str,
     location: str | None = None,
@@ -147,14 +159,59 @@ async def scrape_naukri_jobs(
     page: Page = await context.new_page()
     try:
         await page.goto(url, wait_until="networkidle", timeout=30000)
-        await _random_delay(2, 4)
+        try:
+            await page.wait_for_selector(
+                ".srp-jobtuple-wrapper, article.jobTuple, .cust-job-tuple, [data-job-id]",
+                timeout=8000,
+            )
+        except Exception:
+            pass
+        await _random_delay(1, 2)
 
-        cards = await page.query_selector_all(".srp-jobtuple-wrapper")
+        cards = []
+        for sel in CARD_SELECTORS:
+            cards = await page.query_selector_all(sel)
+            if cards:
+                logger.info(f"Naukri: found {len(cards)} cards with selector '{sel}'")
+                break
+
+        if not cards:
+            try:
+                await page.screenshot(path="/tmp/naukri_debug.png", full_page=True)
+                page_html = await page.content()
+                logger.warning(f"Naukri scraper: 0 cards found. URL={url}")
+                logger.warning(f"Naukri page title: {await page.title()}")
+                logger.warning(f"Naukri page HTML snippet: {page_html[:2000]}")
+            except Exception:
+                pass
+            return results
+
         for card in cards[:max_results]:
             try:
-                title_el = await card.query_selector("a.title")
-                company_el = await card.query_selector("a.comp-name")
-                location_el = await card.query_selector("span.locWdth")
+                title_el = (
+                    await card.query_selector("a.title")
+                    or await card.query_selector("a[data-type='jobTitle']")
+                    or await card.query_selector(".jobTitle a")
+                    or await card.query_selector("h2 a")
+                    or await card.query_selector(".row1 a")
+                )
+                company_el = (
+                    await card.query_selector("a.comp-name")
+                    or await card.query_selector("a[data-type='company']")
+                    or await card.query_selector(".companyInfo a")
+                    or await card.query_selector(".subTitle .company-name")
+                )
+                location_el = (
+                    await card.query_selector("span.locWdth")
+                    or await card.query_selector(".locWdth")
+                    or await card.query_selector("[class*='location']")
+                    or await card.query_selector(".location")
+                )
+                exp_el = (
+                    await card.query_selector(".expwdth")
+                    or await card.query_selector("[class*='experience']")
+                    or await card.query_selector(".exp")
+                )
                 desc_el = await card.query_selector(".job-desc")
                 salary_el = await card.query_selector(".sal")
                 posted_el = await card.query_selector(".job-post-day")
@@ -175,6 +232,10 @@ async def scrape_naukri_jobs(
                 if not loc and location_el:
                     loc = (await location_el.inner_text()).strip()
 
+                experience_text = ""
+                if exp_el:
+                    experience_text = (await exp_el.inner_text()).strip()
+
                 desc = (await desc_el.inner_text()).strip() if desc_el else ""
                 salary = (await salary_el.inner_text()).strip() if salary_el else ""
                 posted = (await posted_el.inner_text()).strip() if posted_el else ""
@@ -189,6 +250,7 @@ async def scrape_naukri_jobs(
                     "title": title,
                     "company": company,
                     "location": loc,
+                    "experience": experience_text,
                     "description": desc,
                     "apply_url": href if href.startswith("http") else f"https://www.naukri.com{href}",
                     "external_job_id": ext_id,

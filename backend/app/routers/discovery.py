@@ -306,7 +306,11 @@ async def list_job_leads(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(JobLead).where(JobLead.user_id == user.id)
+    query = (
+        select(JobLead, JobScore.fit_score, JobScore.decision.label("score_decision"))
+        .outerjoin(JobScore, JobScore.job_lead_id == JobLead.id)
+        .where(JobLead.user_id == user.id)
+    )
     count_q = select(func.count(JobLead.id)).where(JobLead.user_id == user.id)
 
     if portal:
@@ -316,8 +320,6 @@ async def list_job_leads(
         query = query.where(JobLead.processed == processed)
         count_q = count_q.where(JobLead.processed == processed)
     if status:
-        # Join with job_scores to filter by decision
-        query = query.join(JobScore, JobScore.job_lead_id == JobLead.id)
         query = query.where(JobScore.decision == status)
 
     total_result = await db.execute(count_q)
@@ -325,14 +327,19 @@ async def list_job_leads(
 
     query = query.order_by(JobLead.discovered_at.desc()).offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
-    items = result.scalars().all()
+    items = result.all()
 
-    return {
-        "items": [JobLeadResponse.model_validate(i) for i in items],
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-    }
+    items_out = []
+    for row in items:
+        lead = row[0] if hasattr(row, '__iter__') else row
+        fit_score = row[1] if hasattr(row, '__iter__') else None
+        score_decision = row[2] if hasattr(row, '__iter__') else None
+        d = JobLeadResponse.model_validate(lead).model_dump()
+        d["fit_score"] = fit_score
+        d["decision"] = score_decision
+        items_out.append(d)
+
+    return {"items": items_out, "total": total, "page": page, "page_size": page_size}
 
 
 @router.post("/job-leads/{lead_id}/decision")
@@ -453,3 +460,21 @@ async def discovery_rate_status(
 ):
     stats = await get_apply_stats(str(user.id))
     return stats.get(portal, {"used": 0, "limit": 15, "remaining": 15})
+
+
+@router.get("/debug/test-scraper")
+async def test_scraper(
+    keywords: str = "Python Developer",
+    location: str = "Nagpur",
+    user: User = Depends(get_current_user),
+):
+    """Temporary debug endpoint to test the Naukri scraper without the full discovery flow."""
+    from app.services.scraper_service import scrape_naukri_jobs
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        leads = await scrape_naukri_jobs(keywords=keywords, location=location, max_results=5)
+        return {"count": len(leads), "leads": leads[:3]}
+    except Exception as e:
+        logger.error(f"Debug scraper error: {e}")
+        return {"error": str(e), "count": 0}
