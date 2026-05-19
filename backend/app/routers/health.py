@@ -101,7 +101,7 @@ async def health_browser_worker():
     try:
         import httpx
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get("http://browser-worker:8002/health")
+            resp = await client.get(f"{settings.BROWSER_WORKER_URL}/health")
             if resp.status_code == 200:
                 return {"status": "ok", "detail": resp.json()}
     except Exception as e:
@@ -114,7 +114,7 @@ async def health_adk_orchestrator():
     try:
         import httpx
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get("http://adk-orchestrator:8001/health")
+            resp = await client.get(f"{settings.ADK_ORCHESTRATOR_URL}/health")
             if resp.status_code == 200:
                 return {"status": "ok", "detail": resp.json()}
     except Exception as e:

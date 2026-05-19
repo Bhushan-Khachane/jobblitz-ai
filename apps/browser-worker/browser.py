@@ -5,7 +5,8 @@ _pw = None
 _browser = None
 _contexts: dict = {}
 
-SESSION_DIR = os.environ.get("SESSION_DIR", "/data/sessions")
+SESSION_DIR = os.environ.get("SESSION_DIR", "/tmp/browser-worker-sessions")
+os.makedirs(SESSION_DIR, exist_ok=True)
 
 _loop = None
 _thread = None

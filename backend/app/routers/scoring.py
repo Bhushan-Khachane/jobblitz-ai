@@ -70,3 +70,27 @@ async def list_job_scores(
             "description": lead.jd_text if lead else "",
         })
     return out
+
+
+@router.post("/skip")
+async def skip_job_score(
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a job score (user skips the matched job)."""
+    from sqlalchemy import delete
+    job_lead_id = body.get("job_lead_id")
+    if not job_lead_id:
+        raise HTTPException(status_code=400, detail="job_lead_id required")
+    try:
+        job_lead_id = uuid.UUID(str(job_lead_id))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid job_lead_id")
+
+    result = await db.execute(
+        delete(JobScore)
+        .where(JobScore.job_lead_id == job_lead_id, JobScore.user_id == user.id)
+    )
+    await db.commit()
+    return {"ok": True, "deleted": result.rowcount}

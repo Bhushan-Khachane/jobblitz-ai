@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '015_add_browser_session_evidence'
+revision = '015_browser_session_evidence'
 down_revision = '4d918106a9b5'
 branch_labels = None
 depends_on = None

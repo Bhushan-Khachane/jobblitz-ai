@@ -587,7 +587,7 @@ async def generate_cover_letter(
     }
 
     # Call ADK orchestrator
-    adk_url = os.getenv("ADK_ORCHESTRATOR_URL", "http://adk-orchestrator:8001")
+    adk_url = settings.ADK_ORCHESTRATOR_URL
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(

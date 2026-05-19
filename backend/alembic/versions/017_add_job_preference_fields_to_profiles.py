@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = "017_add_job_preference_fields_to_profiles"
-down_revision: Union[str, None] = "016_add_salary_experience_to_job_leads"
+revision: str = "017_job_pref_fields_profiles"
+down_revision: Union[str, None] = "016_salary_exp_job_leads"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

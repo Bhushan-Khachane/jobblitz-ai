@@ -149,7 +149,7 @@ async def run_search(
 
     # Pre-generate run_id and register it as "queued" via ADK before dispatching
     # so the frontend can start polling immediately
-    adk_url = os.getenv("ADK_ORCHESTRATOR_URL", "http://adk-orchestrator:8001")
+    adk_url = settings.ADK_ORCHESTRATOR_URL
     pre_run_id = str(uuid.uuid4())
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:

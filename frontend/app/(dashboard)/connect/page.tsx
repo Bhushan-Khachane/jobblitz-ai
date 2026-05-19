@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { Linkedin, Briefcase } from "lucide-react";
 import api from "@/lib/api";
 import PlatformStatusPill from "@/components/dashboard/PlatformStatusPill";
-import CloudBrowserModal from "@/components/dashboard/CloudBrowserModal";
 
 const PLATFORMS = [
   {
@@ -28,13 +27,6 @@ const PLATFORMS = [
 ];
 
 export default function ConnectPage() {
-  const [activeSession, setActiveSession] = useState<{
-    platform: string;
-    streamUrl: string;
-    token: string;
-    containerId: string;
-    expiresAt: string;
-  } | null>(null);
   const [connectedPlatforms, setConnectedPlatforms] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -53,29 +45,17 @@ export default function ConnectPage() {
   const handleConnect = async (platform: string) => {
     setErrors((e) => ({ ...e, [platform]: "" }));
     try {
-      const res = await api.post(`/login-sessions?platform=${platform}`);
+      const res = await api.post("/portal-sessions/", { portal: platform });
       const data = res.data;
-      setActiveSession({
-        platform: data.platform,
-        streamUrl: data.stream_url,
-        token: data.token,
-        containerId: data.container_id,
-        expiresAt: data.expires_at,
-      });
+      window.location.href = `/portals/connect/${platform}?session_id=${data.session_id}`;
     } catch (err: any) {
       setErrors((e) => ({
         ...e,
-        [platform]: err.response?.data?.detail || "Failed to create session. Is Docker running?",
+        [platform]: err.response?.data?.detail || "Failed to create session. Is the backend running?",
       }));
     }
   };
 
-  const handleVerified = () => {
-    if (activeSession) {
-      setConnectedPlatforms((prev) => ({ ...prev, [activeSession.platform]: true }));
-      setActiveSession(null);
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -135,17 +115,6 @@ export default function ConnectPage() {
         Shine, Unstop, Wellfound & Internshala are scraped directly — no login needed.
       </p>
 
-      {activeSession && (
-        <CloudBrowserModal
-          platform={activeSession.platform}
-          streamUrl={activeSession.streamUrl}
-          token={activeSession.token}
-          containerId={activeSession.containerId}
-          expiresAt={activeSession.expiresAt}
-          onClose={() => setActiveSession(null)}
-          onVerified={handleVerified}
-        />
-      )}
     </div>
   );
 }

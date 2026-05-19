@@ -9,6 +9,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, stat
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import JobLead, JobSearchProfile, JobScore, Profile, Resume, User
@@ -457,13 +458,13 @@ async def get_run_status_proxy(
 
     """Proxy to ADK orchestrator run status."""
     import httpx
-    adk_url = os.getenv("ADK_ORCHESTRATOR_URL", "http://adk-orchestrator:8001")
+    adk_url = settings.ADK_ORCHESTRATOR_URL
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{adk_url}/agent/run/{run_id}/status")
             return resp.json()
     except Exception as e:
-        return {"status": "completed", "run_id": run_id, "error": str(e)}
+        return {"status": "failed", "run_id": run_id, "error": str(e)}
 
 
 @router.get("/rate-status")

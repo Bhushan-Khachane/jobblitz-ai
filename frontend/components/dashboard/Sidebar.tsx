@@ -42,7 +42,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose
   useEffect(() => {
     const fetchCount = async () => {
       try {
-        const { data } = await api.get("/applications/approval-queue");
+        const { data } = await api.get("/applications/me/approval-queue");
         setQueueCount((data || []).length);
       } catch {
         // ignore

@@ -1,8 +1,8 @@
 """Shared Redis client with lazy initialization."""
 
-import os
-
 import redis.asyncio as aioredis
+
+from app.config import settings
 
 _redis: aioredis.Redis | None = None
 
@@ -12,7 +12,7 @@ def get_redis() -> aioredis.Redis:
     global _redis
     if _redis is None:
         _redis = aioredis.from_url(
-            os.getenv("REDIS_URL", "redis://redis:6379/0"),
+            settings.REDIS_URL,
             decode_responses=True,
             max_connections=20,
         )

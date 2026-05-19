@@ -42,7 +42,7 @@ export default function DashboardPage() {
       try {
         const [ovRes, approvalRes] = await Promise.all([
           api.get("/analytics/overview"),
-          api.get("/applications/approval-queue").catch(() => ({ data: [] })),
+          api.get("/applications/me/approval-queue").catch(() => ({ data: [] })),
         ]);
         setOverview(ovRes.data);
         setPendingApprovalCount(Array.isArray(approvalRes.data) ? approvalRes.data.length : 0);

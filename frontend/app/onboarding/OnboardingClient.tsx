@@ -4,7 +4,6 @@ import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, Briefcase, Shield, ChevronRight, ChevronLeft, Check, Zap } from "lucide-react";
-import CloudBrowserModal from "@/components/dashboard/CloudBrowserModal";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -37,7 +36,6 @@ export default function OnboardingClient() {
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [sessions, setSessions] = useState<Record<string, any>>({});
 
   const prefForm = useForm<PrefValues>({
     resolver: zodResolver(prefSchema),
@@ -85,8 +83,9 @@ export default function OnboardingClient() {
 
   const handleConnect = async (platformId: string) => {
     try {
-      const res = await api.post(`/login-sessions?platform=${platformId}`);
-      setSessions((prev) => ({ ...prev, [platformId]: res.data }));
+      const res = await api.post("/portal-sessions/", { portal: platformId });
+      const data = res.data;
+      window.location.href = `/portals/connect/${platformId}?session_id=${data.session_id}`;
     } catch (e: any) {
       alert(e.response?.data?.detail || "Failed to start browser session");
     }
@@ -274,17 +273,6 @@ export default function OnboardingClient() {
                               Connect
                             </button>
                           </div>
-                          {sessions[platform.id] && (
-                            <CloudBrowserModal
-                              platform={platform.id}
-                              streamUrl={sessions[platform.id].stream_url}
-                              token={sessions[platform.id].token}
-                              containerId={sessions[platform.id].container_id}
-                              expiresAt={sessions[platform.id].expires_at}
-                              onClose={() => setSessions((prev) => { const n = {...prev}; delete n[platform.id]; return n; })}
-                              onVerified={() => setSessions((prev) => { const n = {...prev}; delete n[platform.id]; return n; })}
-                            />
-                          )}
                         </div>
                       ))}
 

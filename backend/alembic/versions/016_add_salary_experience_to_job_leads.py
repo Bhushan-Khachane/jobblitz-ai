@@ -10,15 +10,16 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision: str = "016_add_salary_experience_to_job_leads"
-down_revision: Union[str, None] = "015_add_browser_session_evidence"
+revision: str = "016_salary_exp_job_leads"
+down_revision: Union[str, None] = "015_browser_session_evidence"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("job_leads", sa.Column("experience", sa.String(255), nullable=True))
-    op.add_column("job_leads", sa.Column("salary", sa.String(255), nullable=True))
+    # Idempotent: these columns were already added in 014 on some databases
+    op.execute("ALTER TABLE job_leads ADD COLUMN IF NOT EXISTS experience VARCHAR(255)")
+    op.execute("ALTER TABLE job_leads ADD COLUMN IF NOT EXISTS salary VARCHAR(255)")
 
 
 def downgrade() -> None:

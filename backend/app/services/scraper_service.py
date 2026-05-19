@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 from playwright.async_api import Page
-from playwright_stealth import stealth_async
+from playwright_stealth import Stealth
 
 from app.config import settings
 
@@ -52,7 +52,7 @@ async def scrape_linkedin_jobs(
 
     page: Page = await context.new_page()
     try:
-        await stealth_async(page)
+        await Stealth().apply_stealth_async(page)
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         await _random_delay(2, 4)
 

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import BrowserSession, User, UserPortalAccount
@@ -21,7 +22,7 @@ from app.schemas import (
 
 router = APIRouter(prefix="/portal-sessions", tags=["portal-sessions"])
 
-BROWSER_WORKER_URL = os.getenv("BROWSER_WORKER_URL", "http://browser-worker:8002")
+BROWSER_WORKER_URL = settings.BROWSER_WORKER_URL
 DEFAULT_LOGIN_METHOD = os.getenv("LOGIN_METHOD", "cookie").lower()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

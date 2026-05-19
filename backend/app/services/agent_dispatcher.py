@@ -4,7 +4,9 @@ import os
 
 import httpx
 
-ADK_URL = os.getenv("ADK_ORCHESTRATOR_URL", "http://adk-orchestrator:8001")
+from app.config import settings
+
+ADK_URL = settings.ADK_ORCHESTRATOR_URL
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 
 

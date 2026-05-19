@@ -78,12 +78,23 @@ export default function RegisterClient() {
       );
       router.push("/onboarding");
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data
-              ?.detail
-          : undefined;
-      setServerError(msg ?? "Registration failed. Please try again.");
+      let msg = "Registration failed. Please try again.";
+      if (err instanceof Error && "response" in err) {
+        const detail = (err as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
+        if (typeof detail === "string") {
+          msg = detail;
+        } else if (Array.isArray(detail) && detail.length > 0) {
+          // Pydantic validation error array: extract msg from each object
+          const messages = detail
+            .filter((item): item is { msg?: string } => typeof item === "object" && item !== null)
+            .map((item) => item.msg)
+            .filter((m): m is string => !!m);
+          msg = messages.length > 0 ? messages.join(" ") : JSON.stringify(detail);
+        } else if (detail !== undefined) {
+          msg = JSON.stringify(detail);
+        }
+      }
+      setServerError(msg);
     } finally {
       setLoading(false);
     }

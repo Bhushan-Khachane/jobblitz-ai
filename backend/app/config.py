@@ -12,6 +12,8 @@ class Settings(BaseSettings):
 
     # ── Optional with safe defaults ──────────────────────────────────────────
     REDIS_URL: str = "redis://redis:6379/0"
+    BROWSER_WORKER_URL: str = "http://browser-worker:8002"
+    ADK_ORCHESTRATOR_URL: str = "http://adk-orchestrator:8001"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7

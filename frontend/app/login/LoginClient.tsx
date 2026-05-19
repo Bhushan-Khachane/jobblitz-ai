@@ -42,7 +42,19 @@ export default function LoginClient() {
       localStorage.setItem("jb_refresh_token", tokens.refresh_token);
       router.push("/dashboard");
     } catch (e: any) {
-      const message = e.response?.data?.detail || e.message || "Login failed. Please check your credentials.";
+      let message = e.message || "Login failed. Please check your credentials.";
+      const detail = e.response?.data?.detail;
+      if (typeof detail === "string") {
+        message = detail;
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        const messages = detail
+          .filter((item: unknown): item is { msg?: string } => typeof item === "object" && item !== null)
+          .map((item: { msg?: string }) => item.msg)
+          .filter((m: string | undefined): m is string => !!m);
+        message = messages.length > 0 ? messages.join(" ") : JSON.stringify(detail);
+      } else if (detail !== undefined) {
+        message = JSON.stringify(detail);
+      }
       setError(message);
     } finally {
       setLoading(false);

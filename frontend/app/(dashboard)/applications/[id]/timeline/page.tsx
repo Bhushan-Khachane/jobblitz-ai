@@ -28,7 +28,7 @@ export default function ApplicationTimelinePage() {
 
   const fetchTimeline = async () => {
     try {
-      const res = await api.get(`/applications/${id}/timeline`);
+      const res = await api.get(`/application-runs/${id}/timeline`);
       setEvents(res.data || []);
     } catch (err) {
       // silently fail
@@ -39,7 +39,7 @@ export default function ApplicationTimelinePage() {
 
   const fetchAdkStatus = async () => {
     try {
-      const res = await api.get(`/applications/${id}/adk-status`);
+      const res = await api.get(`/application-runs/${id}/adk-status`);
       setAdkStatus(res.data);
     } catch {
       // silently fail
