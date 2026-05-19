@@ -67,7 +67,7 @@ async def discover_jobs(ctx: dict, user_id: str | None = None, search_id: str | 
     When user_id and/or search_id are provided, only those searches are processed."""
     total_discovered = 0
     async with _async_session() as db:
-        query = select(JobSearch).where(JobSearch.is_active == True)
+        query = select(JobSearch).where(JobSearch.is_active)
         if user_id:
             query = query.where(JobSearch.user_id == uuid.UUID(user_id))
         if search_id:
@@ -87,7 +87,7 @@ async def discover_jobs(ctx: dict, user_id: str | None = None, search_id: str | 
                     prof_result = await db.execute(select(Profile).where(Profile.user_id == user_id))
                     profile = prof_result.scalar_one_or_none()
                     res_result = await db.execute(
-                        select(Resume).where(Resume.user_id == user_id, Resume.is_default == True)
+                        select(Resume).where(Resume.user_id == user_id, Resume.is_default)
                     )
                     resume = res_result.scalar_one_or_none()
                     if resume and resume.parsed_text:
@@ -258,7 +258,7 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
             select(Credential).where(
                 Credential.user_id == uid,
                 Credential.platform == listing.platform,
-                Credential.is_active == True,
+                Credential.is_active,
             )
         )
         credential = cred_result.scalar_one_or_none()
@@ -290,7 +290,7 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
             if resume:
                 resume_path = resume.file_path
         else:
-            res_result = await db.execute(select(Resume).where(Resume.user_id == uid, Resume.is_default == True))
+            res_result = await db.execute(select(Resume).where(Resume.user_id == uid, Resume.is_default))
             resume = res_result.scalar_one_or_none()
             if resume:
                 resume_path = resume.file_path
@@ -559,7 +559,7 @@ async def batch_auto_apply(ctx: dict) -> dict:
                     select(Credential).where(
                         Credential.user_id == listing.user_id,
                         Credential.platform == listing.platform,
-                        Credential.is_active == True,
+                        Credential.is_active,
                     )
                 )
                 if not cred_result.scalar_one_or_none():
@@ -577,7 +577,7 @@ async def batch_auto_apply(ctx: dict) -> dict:
 
                 # Get user's default resume
                 res_result = await db.execute(
-                    select(Resume).where(Resume.user_id == listing.user_id, Resume.is_default == True)
+                    select(Resume).where(Resume.user_id == listing.user_id, Resume.is_default)
                 )
                 resume = res_result.scalar_one_or_none()
 

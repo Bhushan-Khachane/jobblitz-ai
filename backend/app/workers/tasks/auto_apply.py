@@ -3,10 +3,9 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
-from app.models import Application, JobListing, Resume, User, Profile
+from app.models import Application, JobListing
 from app.services.agent_dispatcher import dispatch_apply
 
 logger = logging.getLogger(__name__)

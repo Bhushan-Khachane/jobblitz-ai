@@ -14,7 +14,6 @@ from typing import Any
 
 from playwright.async_api import Browser, BrowserContext, Playwright, async_playwright
 
-from app.config import settings
 from app.config import get_proxy
 
 logger = logging.getLogger(__name__)

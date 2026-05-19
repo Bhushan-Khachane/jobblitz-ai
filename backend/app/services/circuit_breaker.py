@@ -97,7 +97,7 @@ class PlatformCircuitBreaker:
             result = await func(*args, **kwargs)
             await self.record_success(platform)
             return result
-        except Exception as e:
+        except Exception:
             await self.record_failure(platform)
             raise
 

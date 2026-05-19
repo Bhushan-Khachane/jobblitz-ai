@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from playwright.async_api import BrowserContext, Page
+from playwright.async_api import Page
 
 logger = logging.getLogger(__name__)
 

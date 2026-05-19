@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 
 from app.services.llm_client import get_llm_client
