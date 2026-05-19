@@ -99,11 +99,12 @@ async def run_search(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Run a saved JobSearch via the full discovery workflow - returns immediately."""
+    """Run a saved JobSearch via ADK workflow. Falls back to direct scrape if ADK is down."""
+    import hashlib
     import httpx
-    import os
-    from app.models import Profile, Resume
+    from app.models import JobLead, Profile, Resume
     from app.services.agent_dispatcher import dispatch_workflow
+    from app.services.scraper_service import scrape_linkedin_jobs, scrape_naukri_jobs
 
     result = await db.execute(
         select(JobSearch).where(JobSearch.id == search_id, JobSearch.user_id == user.id)
@@ -147,38 +148,99 @@ async def run_search(
         "user_id": str(user.id),
     }
 
-    # Pre-generate run_id and register it as "queued" via ADK before dispatching
-    # so the frontend can start polling immediately
+    search.last_run_at = datetime.now(timezone.utc)
+
+    # Quick ADK health check — 3s timeout so the API stays fast
     adk_url = settings.ADK_ORCHESTRATOR_URL
-    pre_run_id = str(uuid.uuid4())
+    adk_healthy = False
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            await client.post(
-                f"{adk_url}/agent/run/pre-register",
-                json={"run_id": pre_run_id, "agent": "workflow"},
-            )
+            await client.get(f"{adk_url}/health")
+            adk_healthy = True
     except Exception:
-        pass  # non-fatal, we'll still dispatch
+        pass
 
-    # Fire-and-forget via FastAPI BackgroundTasks so the task survives response
-    background_tasks.add_task(
-        dispatch_workflow,
-        str(user.id),
-        search.platform,
-        adk_search_profile,
-        user_profile,
-        resume_text,
-        pre_run_id,
-    )
+    if adk_healthy:
+        # ADK is up — fire-and-forget via BackgroundTasks for fast response
+        pre_run_id = str(uuid.uuid4())
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                await client.post(
+                    f"{adk_url}/agent/run/pre-register",
+                    json={"run_id": pre_run_id, "agent": "workflow"},
+                )
+        except Exception:
+            pass
+        background_tasks.add_task(
+            dispatch_workflow,
+            str(user.id),
+            search.platform,
+            adk_search_profile,
+            user_profile,
+            resume_text,
+            pre_run_id,
+        )
+        await db.commit()
+        return {
+            "run_id": pre_run_id,
+            "status": "queued",
+            "message": f"Discovery workflow queued for search '{search.name}'",
+        }
 
-    search.last_run_at = datetime.now(timezone.utc)
-    await db.commit()
+    # ADK unreachable — fall back to direct scrape in-process
+    keywords = search.keywords
+    location = search.location or ""
+    portal = search.platform
 
-    return {
-        "run_id": pre_run_id,
-        "status": "queued",
-        "message": f"Discovery workflow queued for search '{search.name}'",
-    }
+    try:
+        if portal == "naukri":
+            leads = await scrape_naukri_jobs(keywords=keywords, location=location, max_results=20)
+        elif portal == "linkedin":
+            leads = await scrape_linkedin_jobs(keywords=keywords, location=location, max_results=20)
+        else:
+            leads = await scrape_naukri_jobs(keywords=keywords, location=location, max_results=20)
+
+        inserted = 0
+        for lead in leads:
+            title = (lead.get("title") or "").strip().lower()
+            company = (lead.get("company") or "").strip().lower()
+            url = (lead.get("apply_url") or lead.get("url") or "").strip()
+            norm = hashlib.sha256(f"{title}|{company}|{url}".encode()).hexdigest()
+            existing = await db.execute(
+                select(JobLead).where(JobLead.normalized_hash == norm, JobLead.user_id == user.id)
+            )
+            if existing.scalar_one_or_none():
+                continue
+            db_lead = JobLead(
+                user_id=user.id,
+                portal=portal,
+                title=lead.get("title") or "",
+                company=lead.get("company") or "",
+                location=lead.get("location") or "",
+                url=url,
+                jd_text=lead.get("description") or lead.get("jd_text") or "",
+                experience=lead.get("experience") or "",
+                salary=lead.get("salary_info") or lead.get("salary") or "",
+                normalized_hash=norm,
+                raw_data=lead,
+            )
+            db.add(db_lead)
+            inserted += 1
+
+        await db.commit()
+        fallback_run_id = f"fallback-{uuid.uuid4().hex[:8]}"
+        return {
+            "run_id": fallback_run_id,
+            "status": "completed",
+            "events": [
+                {"step": "adk_unavailable", "detail": "ADK health check failed"},
+                {"step": "direct_scrape_complete", "inserted": inserted, "portal": portal},
+            ],
+            "error": None,
+        }
+    except Exception as scrape_err:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Discovery failed: ADK unreachable and direct scrape failed: {scrape_err}")
 
 
 @router.post("/{search_id}/trigger", status_code=status.HTTP_202_ACCEPTED)

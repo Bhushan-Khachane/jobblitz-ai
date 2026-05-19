@@ -327,6 +327,13 @@ export const usersAPI = {
     api.put<Profile>("/users/me/profile", data).then((r) => r.data),
 };
 
+// ── Portal Sessions API ─────────────────────────────────────────────────────
+
+export const portalSessionsAPI = {
+  list: () =>
+    api.get<{ sessions: { portal: string; status: string; verified: boolean }[] }>("/portal-sessions/").then((r) => r.data),
+};
+
 // ── Default export: raw axios instance ──────────────────────────────────────
 
 export default api;

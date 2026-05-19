@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import SearchForm from "@/components/dashboard/SearchForm";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
-import api, { jobSearchAPI, credentialsAPI, discoveryAPI } from "@/lib/api";
+import api, { jobSearchAPI, credentialsAPI, portalSessionsAPI, discoveryAPI } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { useRunStatus } from "@/hooks/useRunStatus";
 
@@ -48,7 +48,7 @@ export default function SearchesPage() {
   const [editItem, setEditItem] = useState<JobSearch | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasCredentials, setHasCredentials] = useState(true);
+  const [hasConnections, setHasConnections] = useState(true);
   const [running, setRunning] = useState<string | null>(null);
   const [triggerMsgs, setTriggerMsgs] = useState<Record<string, string>>({});
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -86,16 +86,23 @@ export default function SearchesPage() {
   }, [fetchSearches]);
 
   useEffect(() => {
-    const loadCredentials = async () => {
+    const loadConnections = async () => {
       try {
-        const creds = await credentialsAPI.list();
-        setHasCredentials((creds || []).length > 0);
+        const [creds, portalRes] = await Promise.allSettled([
+          credentialsAPI.list(),
+          portalSessionsAPI.list(),
+        ]);
+        const hasCreds = creds.status === "fulfilled" && (creds.value || []).length > 0;
+        const hasPortals =
+          portalRes.status === "fulfilled" &&
+          (portalRes.value?.sessions || []).some((s) => s.status === "active" || s.verified);
+        setHasConnections(hasCreds || hasPortals);
       } catch (e: any) {
         console.error(e);
-        setHasCredentials(false);
+        setHasConnections(false);
       }
     };
-    loadCredentials();
+    loadConnections();
   }, []);
 
   const handleCreate = async (formData: any) => {
@@ -197,14 +204,14 @@ export default function SearchesPage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      {!hasCredentials && (
+      {!hasConnections && (
         <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 flex items-start gap-3">
           <span className="text-amber-500 text-xl">⚠️</span>
           <div>
             <p className="font-medium text-amber-400">Auto-apply is not active</p>
             <p className="text-sm text-amber-400 mt-0.5">
               You haven't linked your LinkedIn or Naukri account yet.{" "}
-              <a href="/profile" className="underline font-medium">Add credentials</a> to enable automatic job applications.
+              <a href="/portals" className="underline font-medium">Connect a portal</a> to enable automatic job applications.
             </p>
           </div>
         </div>
