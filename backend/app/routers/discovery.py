@@ -10,9 +10,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user, rate_limiter
+from app.dependencies import get_current_user
 from app.models import JobLead, JobSearchProfile, JobScore, Profile, Resume, User
-from app.schemas import JobLeadResponse, JobSearchProfileCreate, JobSearchProfileResponse, StandardRunResponse
+from app.schemas import JobLeadResponse, StandardRunResponse
 from app.services.agent_dispatcher import dispatch_workflow
 from app.services.velocity_governor import get_apply_stats
 
@@ -133,7 +133,7 @@ async def run_discovery(
     # Fetch resume text
     resume_text = ""
     res_result = await db.execute(
-        select(Resume).where(Resume.user_id == user.id, Resume.is_default == True)
+        select(Resume).where(Resume.user_id == user.id, Resume.is_default)
     )
     resume = res_result.scalar_one_or_none()
     if resume:

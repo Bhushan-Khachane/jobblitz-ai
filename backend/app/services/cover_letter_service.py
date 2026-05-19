@@ -2,10 +2,8 @@
 Generates unique cover letters per application using LLM paraphrasing.
 Enforces cosine similarity < 0.15 vs last 5 cover letters for this user.
 """
-import hashlib
 import json
 import logging
-from typing import Optional
 
 from app.redis_client import get_redis
 from app.services.llm_client import get_llm_client

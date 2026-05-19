@@ -79,8 +79,10 @@ async def record_apply(user_id: str, platform: str):
     hourly_key = f"vel:hourly:{user_id}:{platform}:{_hour_str()}"
     last_key   = f"vel:last:{user_id}:{platform}"
 
-    pipe.incr(daily_key);  pipe.expire(daily_key, 86400)
-    pipe.incr(hourly_key); pipe.expire(hourly_key, 3600)
+    pipe.incr(daily_key)
+    pipe.expire(daily_key, 86400)
+    pipe.incr(hourly_key)
+    pipe.expire(hourly_key, 3600)
     pipe.set(last_key, time.time(), ex=86400)
     await pipe.execute()
 

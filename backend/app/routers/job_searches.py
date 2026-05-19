@@ -131,7 +131,7 @@ async def run_search(
 
     resume_text = ""
     res_result = await db.execute(
-        select(Resume).where(Resume.user_id == user.id, Resume.is_default == True)
+        select(Resume).where(Resume.user_id == user.id, Resume.is_default)
     )
     resume = res_result.scalar_one_or_none()
     if resume:

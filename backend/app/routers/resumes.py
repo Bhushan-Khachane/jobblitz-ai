@@ -58,7 +58,7 @@ async def upload_resume(
 
     if is_default:
         # Unset other defaults
-        result = await db.execute(select(Resume).where(Resume.user_id == user.id, Resume.is_default == True))
+        result = await db.execute(select(Resume).where(Resume.user_id == user.id, Resume.is_default))
         for r in result.scalars().all():
             r.is_default = False
 
@@ -132,7 +132,7 @@ async def update_resume(
 
     if body.is_default:
         # Unset other defaults
-        result = await db.execute(select(Resume).where(Resume.user_id == user.id, Resume.is_default == True, Resume.id != resume_id))
+        result = await db.execute(select(Resume).where(Resume.user_id == user.id, Resume.is_default, Resume.id != resume_id))
         for r in result.scalars().all():
             r.is_default = False
 

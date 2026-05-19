@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 import json as _json
 from sqlalchemy import func, select
@@ -92,7 +91,7 @@ async def apply_to_job_endpoint(
         select(Credential).where(
             Credential.user_id == user.id,
             Credential.platform == listing.platform,
-            Credential.is_active == True,
+            Credential.is_active,
         )
     )
     credential = cred_result.scalar_one_or_none()
@@ -102,7 +101,7 @@ async def apply_to_job_endpoint(
     # Get resume
     resume_id = body.resume_id
     if not resume_id:
-        res_result = await db.execute(select(Resume).where(Resume.user_id == user.id, Resume.is_default == True))
+        res_result = await db.execute(select(Resume).where(Resume.user_id == user.id, Resume.is_default))
         resume = res_result.scalar_one_or_none()
         if resume:
             resume_id = resume.id
@@ -405,7 +404,7 @@ async def create_application_from_lead(
     if not app:
         # Get default resume
         res_result = await db.execute(
-            select(Resume).where(Resume.user_id == user.id, Resume.is_default == True)
+            select(Resume).where(Resume.user_id == user.id, Resume.is_default)
         )
         resume = res_result.scalar_one_or_none()
 
@@ -515,7 +514,7 @@ async def queue_for_approval(
 
     # 4) Find default resume
     res_result = await db.execute(
-        select(Resume).where(Resume.user_id == user_uuid, Resume.is_default == True)
+        select(Resume).where(Resume.user_id == user_uuid, Resume.is_default)
     )
     resume = res_result.scalar_one_or_none()
 
@@ -667,7 +666,7 @@ async def stream_apply(
         select(Credential).where(
             Credential.user_id == user.id,
             Credential.platform == listing.platform,
-            Credential.is_active == True,
+            Credential.is_active,
         )
     )
     credential = cred_result.scalar_one_or_none()
@@ -690,7 +689,7 @@ async def stream_apply(
             resume_path = resume.file_path
     else:
         res_result = await db.execute(
-            select(Resume).where(Resume.user_id == user.id, Resume.is_default == True)
+            select(Resume).where(Resume.user_id == user.id, Resume.is_default)
         )
         resume = res_result.scalar_one_or_none()
         if resume:

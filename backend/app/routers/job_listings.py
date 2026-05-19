@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import JobListing, User
-from app.schemas import JobListingFilter, JobListingResponse
+from app.schemas import JobListingResponse
 
 router = APIRouter(prefix="/job-listings", tags=["job_listings"])
 

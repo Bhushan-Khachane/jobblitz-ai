@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import re
 from pathlib import Path
 
-from playwright.async_api import BrowserContext, Page
+from playwright.async_api import Page
 from playwright_stealth import stealth_async
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 async def _random_delay(low: float = 1.0, high: float = 3.0) -> None:
@@ -92,7 +95,7 @@ async def scrape_linkedin_jobs(
                     or await card.query_selector("a.base-card__full-link")
                 )
                 date_el = await card.query_selector("time")
-                salary_el = (
+                (
                     await card.query_selector(".job-card-container__metadata-wrapper li")
                     or await card.query_selector("[class*='salary']")
                     or await card.query_selector(".salary")
@@ -145,9 +148,6 @@ async def scrape_linkedin_jobs(
 
     return results
 
-
-import logging
-logger = logging.getLogger(__name__)
 
 CARD_SELECTORS = [
     ".srp-jobtuple-wrapper",

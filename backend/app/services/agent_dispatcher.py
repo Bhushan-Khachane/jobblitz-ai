@@ -1,7 +1,6 @@
 """Dispatch ADK agent tasks to the Intelligence Plane."""
 
 import os
-from uuid import UUID
 
 import httpx
 

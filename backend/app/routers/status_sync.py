@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,7 +45,7 @@ async def list_inbox_events(
     if portal:
         query = query.where(PortalInboxEvent.portal == portal)
     if unread_only:
-        query = query.where(PortalInboxEvent.read == False)
+        query = query.where(not PortalInboxEvent.read)
 
     query = query.order_by(PortalInboxEvent.synced_at.desc())
     result = await db.execute(query)

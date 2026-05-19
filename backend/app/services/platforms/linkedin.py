@@ -8,7 +8,6 @@ Max 10 steps before bailout.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from playwright.async_api import Page
 
