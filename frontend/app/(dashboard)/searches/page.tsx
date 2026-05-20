@@ -164,7 +164,17 @@ export default function SearchesPage() {
     try {
       const data = await discoveryAPI.runSearch(id);
       const runId = data.run_id || null;
-      if (runId) {
+      // Fallback direct-scrape returns immediately with status "completed"
+      if (data.status === "completed" || runId?.startsWith("fallback-")) {
+        const inserted = (data as any).inserted ?? 0;
+        setTriggerMsgs((m) => ({
+          ...m,
+          [id]: inserted > 0
+            ? `✅ Discovery complete — ${inserted} new job${inserted === 1 ? "" : "s"} found`
+            : "✅ Discovery complete — no new jobs found (all already in your leads)",
+        }));
+        setTimeout(() => setTriggerMsgs((m) => ({ ...m, [id]: "" })), 8000);
+      } else if (runId) {
         setActiveRunId(runId);
         setTriggerMsgs((m) => ({ ...m, [id]: `🔍 Starting discovery...` }));
       } else {

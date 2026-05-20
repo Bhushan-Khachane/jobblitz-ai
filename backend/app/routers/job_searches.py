@@ -232,6 +232,7 @@ async def run_search(
         return {
             "run_id": fallback_run_id,
             "status": "completed",
+            "inserted": inserted,
             "events": [
                 {"step": "adk_unavailable", "detail": "ADK health check failed"},
                 {"step": "direct_scrape_complete", "inserted": inserted, "portal": portal},

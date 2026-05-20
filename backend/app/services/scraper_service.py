@@ -189,11 +189,17 @@ async def scrape_naukri_jobs(
 
     page: Page = await context.new_page()
     try:
-        await page.goto(url, wait_until="networkidle", timeout=30000)
+        # Use domcontentloaded instead of networkidle — Naukri has heavy ads/trackers
+        # that keep network connections alive indefinitely
+        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        try:
+            await page.wait_for_load_state("load", timeout=15000)
+        except Exception:
+            pass
         try:
             await page.wait_for_selector(
                 ".srp-jobtuple-wrapper, article.jobTuple, .cust-job-tuple, [data-job-id]",
-                timeout=8000,
+                timeout=10000,
             )
         except Exception:
             pass
