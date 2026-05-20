@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user, get_current_user_or_service, rate_limiter
+from app.dependencies import get_current_user, get_current_user_or_service, has_platform_access, rate_limiter
 from app.models import Application, Credential, JobLead, JobListing, Profile, Resume, User
 from app.schemas import ApplicationResponse, ApplicationStatusUpdate, ApplyRequest
 from pydantic import BaseModel
@@ -86,17 +86,12 @@ async def apply_to_job_endpoint(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already applied to this job")
 
-    # Get credentials
-    cred_result = await db.execute(
-        select(Credential).where(
-            Credential.user_id == user.id,
-            Credential.platform == listing.platform,
-            Credential.is_active,
+    # Verify user has access to the platform (credentials or active portal session)
+    if not await has_platform_access(user.id, listing.platform, db):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No active {listing.platform} credentials or portal session found",
         )
-    )
-    credential = cred_result.scalar_one_or_none()
-    if not credential:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"No active {listing.platform} credentials found")
 
     # Get resume
     resume_id = body.resume_id
@@ -661,17 +656,12 @@ async def stream_apply(
     if not listing:
         raise HTTPException(status_code=404, detail="Job listing not found")
 
-    # Get credentials
-    cred_result = await db.execute(
-        select(Credential).where(
-            Credential.user_id == user.id,
-            Credential.platform == listing.platform,
-            Credential.is_active,
+    # Verify user has access to the platform (credentials or active portal session)
+    if not await has_platform_access(user.id, listing.platform, db):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No active {listing.platform} credentials or portal session found",
         )
-    )
-    credential = cred_result.scalar_one_or_none()
-    if not credential:
-        raise HTTPException(status_code=400, detail=f"No active {listing.platform} credentials")
 
     # Get profile
     prof_result = await db.execute(select(Profile).where(Profile.user_id == user.id))

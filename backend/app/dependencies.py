@@ -197,3 +197,30 @@ rate_limiter = RateLimiter(
     max_per_hour=settings.MAX_APPLICATIONS_PER_HOUR,
     max_per_day=settings.MAX_APPLICATIONS_PER_DAY,
 )
+
+
+async def has_platform_access(user_id: uuid.UUID, platform: str, db: AsyncSession) -> bool:
+    """Check whether a user has credentials or an active portal session for a platform."""
+    from app.models import BrowserSession, Credential
+
+    # Check traditional credentials
+    cred_result = await db.execute(
+        select(Credential).where(
+            Credential.user_id == user_id,
+            Credential.platform == platform,
+            Credential.is_active,
+        )
+    )
+    if cred_result.scalar_one_or_none():
+        return True
+
+    # Check browser (portal) sessions
+    session_result = await db.execute(
+        select(BrowserSession).where(
+            BrowserSession.user_id == user_id,
+            BrowserSession.portal == platform,
+            BrowserSession.status == "active",
+            BrowserSession.verified == True,
+        )
+    )
+    return session_result.scalar_one_or_none() is not None

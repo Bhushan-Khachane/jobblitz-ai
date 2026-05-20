@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import JobSearch, User
+from app.models import Application, JobLead, JobListing, JobSearch, Resume, Profile, User
 from app.schemas import JobSearchCreate, JobSearchResponse, JobSearchUpdate
 from arq import create_pool
 from arq.connections import RedisSettings
@@ -102,7 +102,6 @@ async def run_search(
     """Run a saved JobSearch via ADK workflow. Falls back to direct scrape if ADK is down."""
     import hashlib
     import httpx
-    from app.models import JobLead, Profile, Resume
     from app.services.agent_dispatcher import dispatch_workflow
     from app.services.scraper_service import scrape_linkedin_jobs, scrape_naukri_jobs
 
@@ -191,16 +190,37 @@ async def run_search(
     keywords = search.keywords
     location = search.location or ""
     portal = search.platform
+    experience_level = search.experience_level
+
+    # Load resume for matching (optional)
+    resume_text = ""
+    profile = None
+    res_result = await db.execute(
+        select(Resume).where(Resume.user_id == user.id, Resume.is_default)
+    )
+    resume = res_result.scalar_one_or_none()
+    if resume:
+        resume_text = resume.parsed_text or ""
+    prof_result = await db.execute(select(Profile).where(Profile.user_id == user.id))
+    profile = prof_result.scalar_one_or_none()
 
     try:
         if portal == "naukri":
-            leads = await scrape_naukri_jobs(keywords=keywords, location=location, max_results=20)
+            leads = await scrape_naukri_jobs(
+                keywords=keywords, location=location, experience_level=experience_level, max_results=20
+            )
         elif portal == "linkedin":
-            leads = await scrape_linkedin_jobs(keywords=keywords, location=location, max_results=20)
+            leads = await scrape_linkedin_jobs(
+                keywords=keywords, location=location, experience_level=experience_level, max_results=20
+            )
         else:
-            leads = await scrape_naukri_jobs(keywords=keywords, location=location, max_results=20)
+            leads = await scrape_naukri_jobs(
+                keywords=keywords, location=location, experience_level=experience_level, max_results=20
+            )
 
         inserted = 0
+        listings_created = 0
+        apps_created = 0
         for lead in leads:
             title = (lead.get("title") or "").strip().lower()
             company = (lead.get("company") or "").strip().lower()
@@ -227,21 +247,122 @@ async def run_search(
             db.add(db_lead)
             inserted += 1
 
+            # Also create a JobListing so the approval queue + auto-apply pipeline works
+            listing = JobListing(
+                user_id=user.id,
+                job_search_id=search.id,
+                platform=portal,
+                external_job_id=lead.get("external_job_id") or norm[:64],
+                title=lead.get("title") or "",
+                company=lead.get("company") or "",
+                location=lead.get("location") or "",
+                description=lead.get("description") or lead.get("jd_text") or "",
+                apply_url=url,
+                salary_info=lead.get("salary_info") or lead.get("salary") or "",
+                posted_date=lead.get("posted_date") or "",
+                status="discovered",
+                match_score=0.5,
+            )
+            db.add(listing)
+            await db.flush()  # so listing.id is available
+            listings_created += 1
+
+            # Compute match score if we have resume text
+            if resume_text and lead.get("title"):
+                try:
+                    from app.services.matching_service import match_job_to_resume_detailed
+                    match_result = await match_job_to_resume_detailed(
+                        job_title=lead.get("title", ""),
+                        job_description=lead.get("description") or lead.get("jd_text") or "",
+                        resume_text=resume_text,
+                        profile_skills=profile.skills if profile else None,
+                        profile_job_titles=profile.preferred_job_titles if profile else None,
+                        job_location=lead.get("location"),
+                        job_salary=lead.get("salary_info") or lead.get("salary") or "",
+                        preferred_locations=profile.preferred_locations if profile else None,
+                        expected_salary_lpa=profile.expected_salary_lpa if profile else None,
+                        notice_period_days=profile.notice_period_days if profile else None,
+                    )
+                    listing.match_score = match_result.final_score
+                    listing.match_explanation = match_result.to_dict()
+                except Exception:
+                    pass
+
+            # Create Application based on user's application_mode
+            application_mode = getattr(user, "application_mode", "assisted") or "assisted"
+            if application_mode == "manual":
+                continue  # no application created; user applies manually
+
+            idempotency_key = f"apply:{user.id}:{listing.id}"
+            existing_app = await db.execute(
+                select(Application).where(Application.idempotency_key == idempotency_key)
+            )
+            if existing_app.scalar_one_or_none():
+                continue
+
+            if application_mode == "assisted":
+                app = Application(
+                    user_id=user.id,
+                    job_listing_id=listing.id,
+                    resume_id=resume.id if resume else None,
+                    status="pending",
+                    approval_status="pending_approval",
+                    idempotency_key=idempotency_key,
+                )
+                db.add(app)
+                apps_created += 1
+            else:
+                # Auto mode — create approved application + queue via ARQ
+                app = Application(
+                    user_id=user.id,
+                    job_listing_id=listing.id,
+                    resume_id=resume.id if resume else None,
+                    status="pending",
+                    approval_status="approved",
+                    idempotency_key=idempotency_key,
+                )
+                db.add(app)
+                apps_created += 1
+                # Enqueue ARQ task (fire-and-forget via BackgroundTasks)
+                background_tasks.add_task(
+                    _enqueue_auto_apply,
+                    str(user.id),
+                    str(listing.id),
+                    str(resume.id) if resume else None,
+                )
+
         await db.commit()
         fallback_run_id = f"fallback-{uuid.uuid4().hex[:8]}"
         return {
             "run_id": fallback_run_id,
             "status": "completed",
             "inserted": inserted,
+            "listings_created": listings_created,
+            "apps_created": apps_created,
             "events": [
                 {"step": "adk_unavailable", "detail": "ADK health check failed"},
                 {"step": "direct_scrape_complete", "inserted": inserted, "portal": portal},
+                {"step": "pipeline_complete", "listings": listings_created, "applications": apps_created},
             ],
             "error": None,
         }
     except Exception as scrape_err:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Discovery failed: ADK unreachable and direct scrape failed: {scrape_err}")
+
+
+async def _enqueue_auto_apply(user_id: str, job_listing_id: str, resume_id: str | None) -> None:
+    """Helper to enqueue an ARQ auto_apply task from a BackgroundTasks context."""
+    redis_pool = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    try:
+        await redis_pool.enqueue_job(
+            "auto_apply",
+            user_id=user_id,
+            job_listing_id=job_listing_id,
+            resume_id=resume_id,
+        )
+    finally:
+        await redis_pool.close()
 
 
 @router.post("/{search_id}/trigger", status_code=status.HTTP_202_ACCEPTED)

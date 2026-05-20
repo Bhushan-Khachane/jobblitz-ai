@@ -253,17 +253,10 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
         if not listing:
             return {"success": False, "error": "Job listing not found"}
 
-        # Get credentials
-        cred_result = await db.execute(
-            select(Credential).where(
-                Credential.user_id == uid,
-                Credential.platform == listing.platform,
-                Credential.is_active,
-            )
-        )
-        credential = cred_result.scalar_one_or_none()
-        if not credential:
-            return {"success": False, "error": "No active credentials"}
+        # Verify user has platform access (credentials or active portal session)
+        from app.dependencies import has_platform_access
+        if not await has_platform_access(uid, listing.platform, db):
+            return {"success": False, "error": "No active credentials or portal session"}
 
         # Get profile
         prof_result = await db.execute(select(Profile).where(Profile.user_id == uid))
@@ -554,15 +547,9 @@ async def batch_auto_apply(ctx: dict) -> dict:
                 if current_count >= daily_limit:
                     continue
 
-                # Verify user has active credentials for this platform
-                cred_result = await db.execute(
-                    select(Credential).where(
-                        Credential.user_id == listing.user_id,
-                        Credential.platform == listing.platform,
-                        Credential.is_active,
-                    )
-                )
-                if not cred_result.scalar_one_or_none():
+                # Verify user has platform access (credentials or active portal session)
+                from app.dependencies import has_platform_access
+                if not await has_platform_access(listing.user_id, listing.platform, db):
                     continue
 
                 # Skip if an active application already exists for this listing
