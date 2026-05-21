@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o-mini"
     LLM_FALLBACK_ENABLED: bool = True
 
+    # ── Ollama Pro (preferred provider) ──────────────────────────────────────
+    OLLAMA_BASE_URL: str = ""
+    OLLAMA_API_KEY: str = ""
+    OLLAMA_PRO_MODEL: str = "kimi-k2.5"
+    OLLAMA_FAST_MODEL: str = "gemini-3-flash-preview"
+
     # ── Legacy (kept until Phase 2 migration complete) ─────────────────────────
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"

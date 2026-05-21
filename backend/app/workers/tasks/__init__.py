@@ -158,7 +158,7 @@ async def discover_jobs(ctx: dict, user_id: str | None = None, search_id: str | 
                             preferred_locations=profile.preferred_locations if profile else None,
                             expected_salary_lpa=profile.expected_salary_lpa if profile else None,
                             notice_period_days=profile.notice_period_days if profile else None,
-                            experience_years=None,
+                            experience_years=profile.experience_years if profile else None,
                         )
                         match_score = result_obj.final_score
                         match_explanation = result_obj.to_dict()
@@ -329,7 +329,12 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
         answers_used = None
         assisted_mode = False  # default; overridden after successful apply
         try:
-            browser_ctx = await browser_pool.acquire(task_type="apply", user_tier="pro" if user.daily_apply_limit > 50 else "free")
+            browser_ctx = await browser_pool.acquire_for_user_with_portal(
+                user_id=str(user.id),
+                platform=listing.platform,
+                task_type="apply",
+                user_tier="pro" if user.daily_apply_limit > 50 else "free",
+            )
             page = await browser_ctx.new_page()
             try:
                 job_dict = {
@@ -340,12 +345,24 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
                     "platform": listing.platform,
                     "description": listing.description,
                 }
-                result = await route_apply(page, job_dict, profile_dict, resume_path)
+                result = await route_apply(page, job_dict, profile_dict, resume_path, user_id=uid)
                 success = result.success
                 error = result.error
-                screenshot_path = result.screenshot
                 answers_used = result.answers_used
                 assisted_mode = getattr(result, "mode", "auto") == "assisted"
+                # Save screenshot bytes to disk and store the path
+                if result.screenshot:
+                    try:
+                        import os
+                        screenshot_dir = "/tmp/jobblitz_screenshots"
+                        os.makedirs(screenshot_dir, exist_ok=True)
+                        screenshot_file = f"{screenshot_dir}/apply_{application.id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.png"
+                        with open(screenshot_file, "wb") as f:
+                            f.write(result.screenshot)
+                        screenshot_path = screenshot_file
+                    except Exception as screenshot_err:
+                        logger.warning(f"Failed to save screenshot for apply {application.id}: {screenshot_err}")
+                        screenshot_path = None
                 # Record circuit breaker outcome
                 if success:
                     await circuit_breaker.record_success(listing.platform)
@@ -353,7 +370,11 @@ async def auto_apply(ctx: dict, user_id: str, job_listing_id: str, resume_id: st
                     await circuit_breaker.record_failure(listing.platform)
             finally:
                 await page.close()
-                await browser_pool.release(browser_ctx)
+                # Close isolated context directly — do NOT return to shared pool
+                try:
+                    await browser_ctx.close()
+                except Exception:
+                    pass
         except Exception as apply_err:
             success = False
             error = str(apply_err)
@@ -552,15 +573,20 @@ async def batch_auto_apply(ctx: dict) -> dict:
                 if not await has_platform_access(listing.user_id, listing.platform, db):
                     continue
 
-                # Skip if an active application already exists for this listing
-                existing_app = await db.execute(
+                # Skip if an active application already exists for this listing.
+                # "pending" + "approved" is the exception — those need auto_apply dispatch.
+                existing_app_result = await db.execute(
                     select(Application).where(
                         Application.job_listing_id == listing.id,
                         Application.status.in_(["submitted", "applied", "pending_manual", "queued", "pending"]),
                     )
                 )
-                if existing_app.scalar_one_or_none():
-                    continue
+                existing_app = existing_app_result.scalar_one_or_none()
+                if existing_app:
+                    if existing_app.status == "pending" and existing_app.approval_status == "approved":
+                        pass  # will dispatch auto_apply below
+                    else:
+                        continue
 
                 # Get user's default resume
                 res_result = await db.execute(

@@ -1,14 +1,11 @@
-"""LLM client with Gemini primary and OpenAI fallback.
-
-Primary: Google Gemini 1.5 Flash (cheaper, faster)
-Fallback: OpenAI gpt-4o-mini (when Gemini is unavailable)
-"""
+"""LLM client with Ollama Pro primary, Gemini secondary, OpenAI fallback."""
 
 from __future__ import annotations
 
 import json
 import logging
 
+import aiohttp
 import google.generativeai as genai
 from openai import AsyncOpenAI
 
@@ -36,11 +33,15 @@ def _get_openai_client() -> AsyncOpenAI:
 
 
 class LLMClient:
-    """Async LLM client with Gemini primary and OpenAI fallback."""
+    """Async LLM client with Ollama Pro primary, Gemini secondary, OpenAI fallback."""
 
     def __init__(self):
-        self._gemini = None
-        self._openai = None
+        self._session: aiohttp.ClientSession | None = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
 
     async def generate(
         self,
@@ -50,17 +51,29 @@ class LLMClient:
         temperature: float = 0.7,
         use_fallback: bool = False,
     ) -> str:
-        """Generate a text completion. Uses Gemini first, falls back to OpenAI on failure."""
-        if use_fallback or not settings.GEMINI_API_KEY:
-            return await self._generate_openai(system, user, max_tokens, temperature)
+        """Generate a text completion. Uses Ollama Pro first, then Gemini, then OpenAI."""
+        # If explicitly requesting fallback, skip Ollama
+        providers = []
+        if not use_fallback and settings.OLLAMA_BASE_URL and settings.OLLAMA_API_KEY:
+            providers.append(self._generate_ollama)
+        if settings.GEMINI_API_KEY:
+            providers.append(self._generate_gemini)
+        if settings.OPENAI_API_KEY:
+            providers.append(self._generate_openai)
 
-        try:
-            return await self._generate_gemini(system, user, max_tokens, temperature)
-        except Exception as e:
-            logger.warning(f"Gemini generation failed: {e}. Falling back to OpenAI.")
-            if settings.LLM_FALLBACK_ENABLED and settings.OPENAI_API_KEY:
-                return await self._generate_openai(system, user, max_tokens, temperature)
-            raise
+        if not providers:
+            raise RuntimeError("No LLM provider configured. Set OLLAMA, GEMINI, or OPENAI keys.")
+
+        last_error = None
+        for provider in providers:
+            try:
+                return await provider(system, user, max_tokens, temperature)
+            except Exception as e:
+                last_error = e
+                logger.warning(f"{provider.__name__} failed: {e}")
+                continue
+
+        raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
 
     async def generate_structured(
         self,
@@ -85,6 +98,23 @@ class LLMClient:
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse LLM structured response: {e}. Raw: {raw[:500]}")
             return {}
+
+    async def _generate_ollama(
+        self, system: str, user: str, max_tokens: int, temperature: float
+    ) -> str:
+        session = await self._get_session()
+        prompt = f"{system}\n\n{user}" if system else user
+        url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/generate"
+        headers = {"Authorization": f"Bearer {settings.OLLAMA_API_KEY}"}
+        payload = {
+            "model": settings.OLLAMA_PRO_MODEL,
+            "prompt": prompt,
+            "stream": False,
+        }
+        async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+            return data.get("response", "")
 
     async def _generate_gemini(
         self, system: str, user: str, max_tokens: int, temperature: float

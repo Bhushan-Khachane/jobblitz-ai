@@ -9,6 +9,8 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import Profile, User
 from app.schemas import ProfileCreate, ProfileResponse, UserResponse, UserUpdate
+from app.services.ai_service import generate_professional_summary
+from app.models import Resume
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -91,4 +93,64 @@ async def upsert_profile(
 
     await db.commit()
     await db.refresh(profile)
+    return profile
+
+
+@router.post("/me/generate-summary", response_model=ProfileResponse)
+async def generate_ai_summary(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate or regenerate the AI professional summary from profile + default resume."""
+    from sqlalchemy import select
+    from datetime import datetime
+
+    result = await db.execute(select(Profile).where(Profile.user_id == user.id))
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found. Create a profile first.")
+
+    # Fetch default resume text if available
+    resume_text = None
+    resume_result = await db.execute(
+        select(Resume).where(Resume.user_id == user.id, Resume.is_default == True)
+    )
+    default_resume = resume_result.scalar_one_or_none()
+    if default_resume and default_resume.parsed_text:
+        resume_text = default_resume.parsed_text
+
+    # Build profile dict for the LLM
+    profile_data = {
+        "headline": profile.headline,
+        "summary": profile.summary,
+        "skills": profile.skills,
+        "experience": profile.experience,
+        "education": profile.education,
+        "certifications": profile.certifications,
+        "preferred_job_titles": profile.preferred_job_titles,
+        "preferred_locations": profile.preferred_locations,
+        "expected_salary_lpa": profile.expected_salary_lpa,
+        "experience_years": profile.experience_years,
+        "experience_level": profile.experience_level,
+        "languages": profile.languages,
+        "current_ctc_lpa": profile.current_ctc_lpa,
+        "job_type": profile.job_type,
+        "work_mode": profile.work_mode,
+        "portfolio_url": profile.portfolio_url,
+        "linkedin_url": profile.linkedin_url,
+        "github_url": profile.github_url,
+    }
+
+    # Filter out None values for cleaner prompt
+    profile_data = {k: v for k, v in profile_data.items() if v is not None}
+
+    try:
+        summary = await generate_professional_summary(profile_data, resume_text)
+        profile.ai_summary = summary.strip()
+        profile.ai_summary_updated_at = datetime.now()
+        await db.commit()
+        await db.refresh(profile)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate summary: {str(e)}")
+
     return profile

@@ -6,6 +6,7 @@ import { CheckCircle, XCircle, Clock, Building2, MapPin, ExternalLink, Loader2, 
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useApprovalQueue } from "@/hooks/useApprovalQueue";
 import { formatDate, getPlatformBadgeColor } from "@/lib/utils";
@@ -21,12 +22,14 @@ interface QueueItem {
   fit_score: number | null;
   gap_notes: string | null;
   created_at: string;
+  answers_used?: Record<string, any> | null;
 }
 
 export default function ApprovalQueuePage() {
-  const { queue, loading, error, refetch, approve, reject } = useApprovalQueue();
+  const { queue, loading, error, refetch, approve, reject, answerQuestions } = useApprovalQueue();
   const [acting, setActing] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [pendingAnswers, setPendingAnswers] = useState<Record<string, Record<string, string>>>({});
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
@@ -47,6 +50,26 @@ export default function ApprovalQueuePage() {
     setActing(id);
     try {
       await reject(id);
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const handleAnswerChange = (id: string, question: string, value: string) => {
+    setPendingAnswers((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], [question]: value },
+    }));
+  };
+
+  const handleSaveAnswers = async (id: string) => {
+    const answers = Object.entries(pendingAnswers[id] || {})
+      .filter(([_, v]) => v.trim())
+      .map(([question, answer]) => ({ question, answer }));
+    if (answers.length === 0) return;
+    setActing(id);
+    try {
+      await answerQuestions(id, answers);
     } finally {
       setActing(null);
     }
@@ -102,7 +125,8 @@ export default function ApprovalQueuePage() {
             {items.map((item) => {
               const isActing = acting === item.id;
               const isExpanded = expanded === item.id;
-              const score = item.fit_score ?? 0;
+              const score = Math.round((item.fit_score ?? 0) * 100);
+              const unanswered = item.answers_used?.unanswered || [];
 
               return (
                 <motion.div
@@ -195,19 +219,55 @@ export default function ApprovalQueuePage() {
 
                         {/* Actions */}
                         <div className="flex flex-col gap-2 shrink-0">
-                          <Button
-                            size="sm"
-                            className="bg-green-600 hover:bg-green-700 text-white"
-                            disabled={isActing}
-                            onClick={() => handleApprove(item.id)}
-                          >
-                            {isActing ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <CheckCircle className="w-4 h-4" />
-                            )}
-                            Approve
-                          </Button>
+                          {/* If there are unanswered questions, show answer inputs */}
+                          {unanswered.length > 0 ? (
+                            <div className="flex flex-col gap-2">
+                              <p className="text-xs text-amber-400 font-medium">
+                                {unanswered.length} question(s) need your answer
+                              </p>
+                              {unanswered.map((q: string, idx: number) => (
+                                <div key={idx} className="flex flex-col gap-1">
+                                  <label className="text-[10px] text-muted-foreground truncate max-w-40" title={q}>
+                                    {q.length > 40 ? q.slice(0, 40) + "..." : q}
+                                  </label>
+                                  <Input
+                                    size={1}
+                                    className="h-7 text-xs bg-background"
+                                    placeholder="Your answer..."
+                                    value={pendingAnswers[item.id]?.[q] || ""}
+                                    onChange={(e) => handleAnswerChange(item.id, q, e.target.value)}
+                                  />
+                                </div>
+                              ))}
+                              <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700 text-white mt-1"
+                                disabled={isActing}
+                                onClick={() => handleSaveAnswers(item.id)}
+                              >
+                                {isActing ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <CheckCircle className="w-4 h-4" />
+                                )}
+                                Save Answers & Apply
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700 text-white"
+                              disabled={isActing}
+                              onClick={() => handleApprove(item.id)}
+                            >
+                              {isActing ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <CheckCircle className="w-4 h-4" />
+                              )}
+                              Approve
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"

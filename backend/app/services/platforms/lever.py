@@ -23,7 +23,7 @@ SUBMIT_SELECTORS = [
 
 
 async def handle_lever(
-    page: Page, job: dict, profile: dict, resume_path: str | None = None
+    page: Page, job: dict, profile: dict, resume_path: str | None = None, user_id=None
 ) -> ApplyResult:
     """Apply via Lever ATS."""
     url = job.get("apply_url", "") or job.get("external_url", "")

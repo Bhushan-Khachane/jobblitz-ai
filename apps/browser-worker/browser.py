@@ -1,5 +1,5 @@
 from playwright.async_api import async_playwright
-import asyncio, json, os, threading
+import asyncio, json, os, threading, random
 
 _pw = None
 _browser = None
@@ -10,6 +10,54 @@ os.makedirs(SESSION_DIR, exist_ok=True)
 
 _loop = None
 _thread = None
+
+VIEWPORTS = [
+    {"width": 1366, "height": 768},
+    {"width": 1440, "height": 900},
+    {"width": 1536, "height": 864},
+    {"width": 1280, "height": 720},
+]
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+]
+
+STEALTH_INIT_SCRIPT = """
+Object.defineProperty(navigator, 'webdriver', {
+  get: () => undefined,
+  configurable: true
+});
+Object.defineProperty(navigator, 'plugins', {
+  get: () => Array.from({length: 5}, (_, i) => ({
+    name: ['Chrome PDF Plugin','Chrome PDF Viewer','Native Client','Widevine','Flash'][i]
+  }))
+});
+Object.defineProperty(navigator, 'languages', {
+  get: () => ['en-IN', 'en-US', 'en', 'hi']
+});
+if (!window.chrome) {
+  window.chrome = {
+    runtime: { id: undefined },
+    loadTimes: function(){},
+    csi: function(){},
+    app: {}
+  };
+}
+const origGetContext = HTMLCanvasElement.prototype.getContext;
+HTMLCanvasElement.prototype.getContext = function(type, ...args) {
+  const ctx = origGetContext.call(this, type, ...args);
+  if (type === '2d' && ctx) {
+    const origFillText = ctx.fillText.bind(ctx);
+    ctx.fillText = function(text, x, y, ...rest) {
+      origFillText(text, x + Math.random() * 0.1, y + Math.random() * 0.1, ...rest);
+    };
+  }
+  return ctx;
+};
+"""
 
 
 def _ensure_loop():
@@ -30,16 +78,30 @@ async def _get_page(session_id: str = "default"):
     global _pw, _browser
     if _browser is None:
         _pw = await async_playwright().start()
+        launch_args = [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-features=IsolateOrigins,site-per-process",
+        ]
         _browser = await _pw.chromium.launch(
             headless=os.environ.get("HEADLESS", "true") == "true",
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
+            args=launch_args
         )
     if session_id not in _contexts:
+        viewport = random.choice(VIEWPORTS)
+        user_agent = random.choice(USER_AGENTS)
         _contexts[session_id] = await _browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/124.0.0.0 Safari/537.36"
+            viewport=viewport,
+            user_agent=user_agent,
+            locale="en-IN",
+            timezone_id="Asia/Kolkata",
+            extra_http_headers={
+                "Accept-Language": "en-IN,en;q=0.9,hi;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+            },
         )
+        await _contexts[session_id].add_init_script(STEALTH_INIT_SCRIPT)
     pages = _contexts[session_id].pages
     if not pages:
         page = await _contexts[session_id].new_page()

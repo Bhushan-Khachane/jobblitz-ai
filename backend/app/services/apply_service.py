@@ -124,37 +124,115 @@ async def _fill_standard_fields(page: Page, profile: dict) -> None:
             await _random_delay(0.3, 0.8)
 
 
-async def _handle_questions(page: Page, user_id: uuid.UUID, profile: dict, db_session=None) -> dict[str, str]:
-    """Find and answer text-area / input questions using AI."""
+async def _handle_questions(
+    page: Page,
+    user_id: uuid.UUID,
+    profile: dict,
+    platform: str | None = None,
+    db_session=None,
+) -> tuple[dict[str, str], list[str]]:
+    """Find and answer text-area / input questions.
+
+    Returns:
+        (answered_dict, unanswered_questions_list)
+    """
+    from app.services.questionnaire_defaults import get_default_answer
+    from app.models import QuestionAnswer
+    from sqlalchemy import select, func as sqlfunc
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
     answered: dict[str, str] = {}
+    unanswered: list[str] = []
+
     textareas = await page.query_selector_all("textarea")
     for ta in textareas:
         label = (await ta.get_attribute("aria-label")) or (await ta.get_attribute("placeholder")) or ""
         name = (await ta.get_attribute("name")) or ""
-        question = label or name
+        question = (label or name).strip()
         if not question:
             continue
         current_val = (await ta.input_value()).strip()
         if current_val:
             continue
-        # Try AI answer
-        try:
-            profile_text = (
-                f"Name: {profile.get('full_name', '')}\n"
-                f"Headline: {profile.get('headline', '')}\n"
-                f"Skills: {profile.get('skills', '')}\n"
-                f"Experience: {profile.get('experience', '')}\n"
-                f"Education: {profile.get('education', '')}"
-            )
-            ans = await answer_question(question, profile_text)
-            await ta.fill("")
-            await _random_delay(0.2, 0.5)
-            await ta.type(ans[:2000], delay=random.randint(20, 60))
-            answered[question] = ans[:500]
-            await _random_delay(0.5, 1.0)
-        except Exception:
-            continue
-    return answered
+
+        ans: str | None = None
+        source = "unknown"
+
+        # 1. Try resume-derived default answer
+        ans = get_default_answer(question, profile)
+        if ans:
+            source = "default"
+
+        # 2. Try QuestionAnswer memory (exact match or fuzzy)
+        if not ans and db_session:
+            try:
+                mem_result = await db_session.execute(
+                    select(QuestionAnswer)
+                    .where(
+                        QuestionAnswer.user_id == user_id,
+                        QuestionAnswer.platform == (platform or ""),
+                    )
+                    .where(
+                        sqlfunc.lower(QuestionAnswer.question_text).like(f"%{question.lower()}%")
+                        | sqlfunc.lower(QuestionAnswer.question_text).ilike(f"%{question.lower()}%")
+                    )
+                    .order_by(QuestionAnswer.usage_count.desc())
+                    .limit(1)
+                )
+                mem = mem_result.scalar_one_or_none()
+                if mem:
+                    ans = mem.answer_text
+                    source = "memory"
+                    mem.usage_count += 1
+                    await db_session.commit()
+            except Exception:
+                pass
+
+        # 3. Fallback to LLM
+        if not ans:
+            try:
+                profile_text = (
+                    f"Name: {profile.get('full_name', '')}\n"
+                    f"Headline: {profile.get('headline', '')}\n"
+                    f"Skills: {profile.get('skills', '')}\n"
+                    f"Experience: {profile.get('experience', '')}\n"
+                    f"Education: {profile.get('education', '')}"
+                )
+                ans = await answer_question(question, profile_text)
+                source = "llm"
+            except Exception:
+                pass
+
+        if ans and ans.strip():
+            try:
+                await ta.fill("")
+                await _random_delay(0.2, 0.5)
+                await ta.type(ans[:2000], delay=random.randint(20, 60))
+                answered[question] = ans[:500]
+                await _random_delay(0.5, 1.0)
+            except Exception:
+                pass
+
+            # Persist LLM-generated answers to QuestionAnswer memory
+            if source == "llm" and db_session:
+                try:
+                    stmt = pg_insert(QuestionAnswer).values(
+                        user_id=user_id,
+                        question_text=question,
+                        answer_text=ans[:2000],
+                        platform=platform or "",
+                        usage_count=1,
+                    ).on_conflict_do_nothing(
+                        index_elements=["user_id", "question_text", "platform"]
+                    )
+                    await db_session.execute(stmt)
+                    await db_session.commit()
+                except Exception:
+                    pass
+        else:
+            unanswered.append(question)
+
+    return answered, unanswered
 
 
 async def _upload_resume_to_field(page: Page, resume_path: str) -> bool:
@@ -178,11 +256,12 @@ async def fill_application_form(
     resume_path: str | None,
     cover_letter: str | None,
     user_id: uuid.UUID,
+    platform: str | None = None,
     db_session=None,
-) -> tuple[bool, dict[str, str], str | None]:
+) -> tuple[bool, dict[str, str], list[str], str | None]:
     """
     Fill an application form on the current page.
-    Returns (success, answers_used, error_message).
+    Returns (success, answered_questions, unanswered_questions, error_message).
     """
     try:
         await _random_delay(1, 2)
@@ -207,12 +286,12 @@ async def fill_application_form(
                         await _random_delay(0.5, 1.0)
                         break
 
-        # Answer unknown questions with AI
-        answers = await _handle_questions(page, user_id, profile, db_session)
+        # Answer unknown questions with AI / memory / defaults
+        answers, unanswered = await _handle_questions(page, user_id, profile, platform, db_session)
 
-        return True, answers, None
+        return True, answers, unanswered, None
     except Exception as e:
-        return False, {}, str(e)
+        return False, {}, [], str(e)
 
 
 async def _click_apply_on_page(page: Page) -> tuple[bool, str | None]:
@@ -304,19 +383,23 @@ async def _apply_naukri(
         return True, None, {}
 
     # Fill any form fields that appeared after clicking Apply
-    fill_ok, answers, fill_err = await fill_application_form(
-        page, profile, resume_path, cover_letter, user_id, db_session
+    fill_ok, answers, unanswered, fill_err = await fill_application_form(
+        page, profile, resume_path, cover_letter, user_id, "naukri", db_session
     )
     if not fill_ok:
-        return False, f"Form fill error: {fill_err}", answers
+        return False, f"Form fill error: {fill_err}", {"answered": answers, "unanswered": unanswered}
+
+    # If there are unanswered questions, mark as assisted so user can provide answers
+    if unanswered:
+        return True, None, {"answered": answers, "unanswered": unanswered, "needs_user_input": True}
 
     # Try clicking submit on the form/modal
     sub_ok, sub_err = await _click_apply_on_page(page)
     if not sub_ok:
-        return False, f"Submit error: {sub_err}", answers
+        return False, f"Submit error: {sub_err}", {"answered": answers, "unanswered": unanswered}
 
     await _random_delay(2, 3)
-    return True, None, answers
+    return True, None, {"answered": answers, "unanswered": unanswered}
 
 
 async def submit_application(page: Page) -> tuple[bool, str | None]:

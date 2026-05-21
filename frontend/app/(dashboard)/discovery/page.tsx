@@ -322,14 +322,14 @@ export default function DiscoveryPage() {
                       {lead.fit_score != null ? (
                         <span
                           className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                            lead.fit_score >= 80
+                            lead.fit_score >= 0.8
                               ? "bg-green-500/20 text-green-400"
-                              : lead.fit_score >= 60
+                              : lead.fit_score >= 0.6
                                 ? "bg-amber-500/20 text-amber-400"
                                 : "bg-red-500/20 text-red-400"
                           }`}
                         >
-                          {lead.fit_score}%
+                          {Math.round(lead.fit_score * 100)}%
                         </span>
                       ) : (
                         <span className="text-muted-foreground">—</span>

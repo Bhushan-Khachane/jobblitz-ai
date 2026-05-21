@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 async def handle_linkedin_easy_apply(
-    page: Page, job: dict, profile: dict, resume_path: str | None = None
+    page: Page, job: dict, profile: dict, resume_path: str | None = None, user_id=None
 ) -> ApplyResult:
     """Apply to a LinkedIn job using Easy Apply flow."""
     url = job.get("apply_url", "") or job.get("external_url", "")

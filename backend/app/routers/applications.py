@@ -238,7 +238,6 @@ async def get_approval_queue(
     rows = result.all()
     out = []
     for app, listing in rows:
-        screening = (app.answers_used or {}).get("screening", {})
         out.append(ApplicationResponse(
             id=app.id,
             job_listing_id=app.job_listing_id,
@@ -256,9 +255,10 @@ async def get_approval_queue(
             company=listing.company,
             location=listing.location,
             apply_url=listing.apply_url,
-            fit_score=screening.get("fit_score"),
-            gap_notes=screening.get("gap_notes"),
+            fit_score=listing.match_score,
+            gap_notes=(listing.match_explanation or {}).get("gap_notes") if listing.match_explanation else None,
             portal=listing.platform,
+            answers_used=app.answers_used,
         ))
     return out
 
@@ -340,6 +340,85 @@ async def reject_application(
         await db.commit()
 
     return {"message": "Application rejected", "application_id": str(app.id)}
+
+
+class AnswerQuestionsRequest(BaseModel):
+    answers: list[dict[str, str]]  # [{"question": "...", "answer": "..."}]
+
+
+@router.post("/{application_id}/answer-questions", response_model=dict)
+async def answer_questions(
+    application_id: uuid.UUID,
+    body: AnswerQuestionsRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save user-provided answers to QuestionAnswer memory and re-queue the application."""
+    from app.models import QuestionAnswer
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    result = await db.execute(
+        select(Application).where(Application.id == application_id, Application.user_id == user.id)
+    )
+    app = result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    # Validate answers shape
+    for item in body.answers:
+        if "question" not in item or "answer" not in item:
+            raise HTTPException(status_code=400, detail="Each answer must have 'question' and 'answer' keys")
+
+    # Save each answer to QuestionAnswer memory
+    platform = ""
+    listing_result = await db.execute(select(JobListing).where(JobListing.id == app.job_listing_id))
+    listing = listing_result.scalar_one_or_none()
+    if listing:
+        platform = listing.platform or ""
+
+    for item in body.answers:
+        stmt = pg_insert(QuestionAnswer).values(
+            user_id=user.id,
+            question_text=item["question"],
+            answer_text=item["answer"],
+            platform=platform,
+            usage_count=1,
+        ).on_conflict_do_update(
+            index_elements=["user_id", "question_text", "platform"],
+            set_={"answer_text": item["answer"], "usage_count": QuestionAnswer.usage_count + 1},
+        )
+        await db.execute(stmt)
+
+    # Merge new answers into the existing answers_used JSONB
+    existing = app.answers_used or {}
+    answered = existing.get("answered", {})
+    unanswered = existing.get("unanswered", [])
+
+    for item in body.answers:
+        q = item["question"]
+        answered[q] = item["answer"]
+        if q in unanswered:
+            unanswered.remove(q)
+
+    app.answers_used = {"answered": answered, "unanswered": unanswered}
+    app.approval_status = "approved"
+    app.status = "pending"
+    await db.commit()
+
+    # Re-queue auto_apply so it retries with the new answers in memory
+    redis_pool = await _get_arq_pool()
+    await redis_pool.enqueue_job(
+        "auto_apply",
+        user_id=str(user.id),
+        job_listing_id=str(app.job_listing_id),
+        resume_id=str(app.resume_id) if app.resume_id else None,
+    )
+
+    return {
+        "message": "Answers saved and application queued for retry",
+        "application_id": str(app.id),
+        "saved": len(body.answers),
+    }
 
 
 @router.post("/from-lead/{job_lead_id}", response_model=dict)

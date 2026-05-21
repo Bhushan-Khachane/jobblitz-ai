@@ -71,8 +71,8 @@ class ProfileCreate(BaseModel):
     summary: str | None = None
     skills: list[str] | None = None
     experience: list[dict] | dict | None = None
-    education: list[str] | dict | None = None
-    certifications: list[str] | dict | None = None
+    education: list[dict] | dict | None = None
+    certifications: list[dict] | dict | None = None
     preferred_job_titles: list[str] | None = None
     preferred_locations: list[str] | None = None
     expected_salary_lpa: float | None = None
@@ -82,9 +82,22 @@ class ProfileCreate(BaseModel):
     remote_only: bool | None = None
     target_portals: list[str] | None = None
     notice_period_days: int | None = None
+    # Salary
+    current_ctc_lpa: float | None = None
+    current_fixed_lpa: float | None = None
+    current_variable_lpa: float | None = None
+    # Languages & links
+    languages: list[str] | None = None
+    job_type: str | None = Field(None, pattern="^(full-time|contract|internship|part-time|freelance)$")
+    work_mode: str | None = Field(None, pattern="^(remote|hybrid|onsite)$")
+    portfolio_url: str | None = None
+    linkedin_url: str | None = None
+    github_url: str | None = None
+    ai_summary: str | None = None
 
 
 class ProfileResponse(ProfileCreate):
+    ai_summary_updated_at: datetime | None = None
     id: uuid.UUID
     user_id: uuid.UUID
     created_at: datetime
@@ -248,6 +261,7 @@ class ApplicationResponse(BaseModel):
     fit_score: float | None = None
     gap_notes: str | None = None
     portal: str | None = None
+    answers_used: dict | None = None
 
     model_config = {"from_attributes": True}
 

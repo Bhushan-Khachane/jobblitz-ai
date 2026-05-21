@@ -229,15 +229,21 @@ async def import_cookies(
         raise HTTPException(status_code=502, detail=f"Browser-worker error: {e}")
 
     # Build evidence
+    page_text = bw_result.get("page_text_excerpt", "")
     evidence = {
         "url": bw_result.get("url"),
         "screenshot_url": bw_result.get("screenshot_url"),
-        "page_text_excerpt": bw_result.get("page_text_excerpt"),
+        "page_text_excerpt": page_text,
         "reason": bw_result.get("reason"),
     }
     session.evidence_json = evidence
 
-    if bw_result.get("verified"):
+    # Guard against false-positive verification from browser-worker
+    blocked_indicators = ["access denied", "you don't have permission", "blocked", "unauthorized"]
+    is_blocked = any(ind in page_text.lower() for ind in blocked_indicators)
+    is_verified = bw_result.get("verified") and not is_blocked
+
+    if is_verified:
         session.status = "active"
         session.verified = True
         session.last_verified_at = datetime.now(timezone.utc)
@@ -267,7 +273,7 @@ async def import_cookies(
             reason=None,
             url=bw_result.get("url"),
             screenshot_url=bw_result.get("screenshot_url"),
-            page_text_excerpt=bw_result.get("page_text_excerpt"),
+            page_text_excerpt=page_text,
             status=session.status,
         )
 
@@ -277,10 +283,10 @@ async def import_cookies(
     await db.commit()
     return PortalVerifyResponse(
         verified=False,
-        reason=bw_result.get("reason"),
+        reason=bw_result.get("reason") or ("Access denied by portal" if is_blocked else "Verification failed"),
         url=bw_result.get("url"),
         screenshot_url=bw_result.get("screenshot_url"),
-        page_text_excerpt=bw_result.get("page_text_excerpt"),
+        page_text_excerpt=page_text,
         status=session.status,
     )
 
@@ -315,15 +321,21 @@ async def verify_portal_session(
         raise HTTPException(status_code=502, detail=f"Browser-worker error: {e}")
 
     # Build evidence
+    page_text = bw_result.get("page_text_excerpt", "")
     evidence = {
         "url": bw_result.get("url"),
         "screenshot_url": bw_result.get("screenshot_url"),
-        "page_text_excerpt": bw_result.get("page_text_excerpt"),
+        "page_text_excerpt": page_text,
         "reason": bw_result.get("reason"),
     }
     session.evidence_json = evidence
 
-    if bw_result.get("verified"):
+    # Guard against false-positive verification from browser-worker
+    blocked_indicators = ["access denied", "you don't have permission", "blocked", "unauthorized"]
+    is_blocked = any(ind in page_text.lower() for ind in blocked_indicators)
+    is_verified = bw_result.get("verified") and not is_blocked
+
+    if is_verified:
         session.status = "active"
         session.verified = True
         session.last_verified_at = datetime.now(timezone.utc)
@@ -352,7 +364,7 @@ async def verify_portal_session(
             reason=None,
             url=bw_result.get("url"),
             screenshot_url=bw_result.get("screenshot_url"),
-            page_text_excerpt=bw_result.get("page_text_excerpt"),
+            page_text_excerpt=page_text,
             status=session.status,
         )
 
@@ -361,10 +373,10 @@ async def verify_portal_session(
     await db.commit()
     return PortalVerifyResponse(
         verified=False,
-        reason=bw_result.get("reason"),
+        reason=bw_result.get("reason") or ("Access denied by portal" if is_blocked else "Verification failed"),
         url=bw_result.get("url"),
         screenshot_url=bw_result.get("screenshot_url"),
-        page_text_excerpt=bw_result.get("page_text_excerpt"),
+        page_text_excerpt=page_text,
         status=session.status,
     )
 

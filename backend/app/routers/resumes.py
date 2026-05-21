@@ -12,7 +12,13 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import Profile, Resume, User
 from app.schemas import ResumeResponse, ResumeTailorRequest, ResumeTailorResponse, ResumeUpdate
-from app.services.ai_service import extract_resume_profile, resume_tailor
+from app.services.ai_service import (
+    extract_resume_profile,
+    resume_tailor,
+    _to_str_list,
+    _to_str,
+    _to_int,
+)
 from app.services.pdf_service import generate_tailored_pdf, parse_pdf
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
@@ -180,19 +186,55 @@ async def _upsert_profile(db: AsyncSession, user_id: uuid.UUID, data: dict) -> N
         db.add(profile)
 
     if data.get("headline"):
-        profile.headline = data["headline"]
+        profile.headline = _to_str(data["headline"])
     if data.get("summary"):
-        profile.summary = data["summary"]
-    if data.get("skills"):
-        profile.skills = data["skills"]
-    if data.get("job_titles"):
-        profile.preferred_job_titles = data["job_titles"]
-    if data.get("experience"):
-        profile.experience = data["experience"]
-    if data.get("education"):
-        profile.education = data["education"]
+        profile.summary = _to_str(data["summary"])
+    if "skills" in data:
+        profile.skills = _to_str_list(data["skills"])
+    if "job_titles" in data:
+        profile.preferred_job_titles = _to_str_list(data["job_titles"])
+    if "experience" in data:
+        profile.experience = _normalize_array(data["experience"])
+    if "education" in data:
+        profile.education = _normalize_array(data["education"])
+    if "certifications" in data:
+        profile.certifications = _normalize_array(data["certifications"])
+    if data.get("experience_years") is not None:
+        profile.experience_years = _to_int(data["experience_years"])
+    if data.get("current_ctc_lpa") is not None:
+        profile.current_ctc_lpa = _to_float(data["current_ctc_lpa"])
+    if data.get("current_fixed_lpa") is not None:
+        profile.current_fixed_lpa = _to_float(data["current_fixed_lpa"])
+    if data.get("current_variable_lpa") is not None:
+        profile.current_variable_lpa = _to_float(data["current_variable_lpa"])
+    if "languages" in data:
+        profile.languages = _to_str_list(data["languages"])
+    if data.get("portfolio_url"):
+        profile.portfolio_url = _to_str(data["portfolio_url"])
+    if data.get("linkedin_url"):
+        profile.linkedin_url = _to_str(data["linkedin_url"])
+    if data.get("github_url"):
+        profile.github_url = _to_str(data["github_url"])
 
     await db.commit()
+
+
+def _normalize_array(val):
+    """Ensure the LLM response is stored as a list, converting a single dict to a list if needed."""
+    if val is None:
+        return None
+    if isinstance(val, list):
+        return val
+    if isinstance(val, dict):
+        return [val]
+    return [val]
+
+
+def _to_float(val) -> float | None:
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
 
 
 @router.delete("/{resume_id}", status_code=status.HTTP_204_NO_CONTENT)

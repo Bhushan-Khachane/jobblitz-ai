@@ -70,6 +70,15 @@ LOGIN_PAGE_SIGNALS = {
     "indeed": ["sign in", "create account", "forgot password"],
 }
 
+BLOCKED_SIGNALS = ["access denied", "you don't have permission", "blocked", "unauthorized"]
+
+
+def _page_is_blocked(page_text: str) -> bool:
+    if not page_text:
+        return False
+    page_lower = page_text.lower()
+    return any(s in page_lower for s in BLOCKED_SIGNALS)
+
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
@@ -122,6 +131,16 @@ async def verify_session(session_id: str, portal: str) -> dict:
         signals = VERIFY_SUCCESS_SIGNALS.get(portal, [])
         login_signals = LOGIN_PAGE_SIGNALS.get(portal, [])
 
+        # Check if the page is blocked by CDN/WAF before anything else
+        if _page_is_blocked(page_text):
+            return _evidence_dict(
+                verified=False,
+                url=current_url,
+                screenshot=screenshot_path,
+                excerpt=page_excerpt,
+                reason="Access denied by portal (bot detection / IP blocked). Try again from a different network or use manual mode.",
+            )
+
         # Check URL for authenticated signals
         url_has_signal = any(s in current_url for s in signals)
 
@@ -129,7 +148,7 @@ async def verify_session(session_id: str, portal: str) -> dict:
         page_lower = page_text.lower() if page_text else ""
         text_has_login = any(s in page_lower for s in login_signals)
 
-        if url_has_signal:
+        if url_has_signal and not text_has_login:
             _save_state(session_id, portal)
             return _evidence_dict(
                 verified=True,
@@ -177,8 +196,14 @@ async def restore_session(session_id: str, portal: str) -> bool:
         goto(PORTAL_VERIFY_URLS.get(portal, "https://www.naukri.com"))
         await asyncio.sleep(2)
         current_url = url().strip()
+        page_text = text()
+        if _page_is_blocked(page_text):
+            return False
         signals = VERIFY_SUCCESS_SIGNALS.get(portal, [])
-        return any(s in current_url for s in signals)
+        login_signals = LOGIN_PAGE_SIGNALS.get(portal, [])
+        has_success = any(s in current_url for s in signals)
+        has_login = any(s in page_text.lower() for s in login_signals)
+        return has_success and not has_login
     except Exception:
         return False
 

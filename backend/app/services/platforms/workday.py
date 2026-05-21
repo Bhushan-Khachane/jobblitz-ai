@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 async def handle_workday(
-    page: Page, job: dict, profile: dict, resume_path: str | None = None
+    page: Page, job: dict, profile: dict, resume_path: str | None = None, user_id=None
 ) -> ApplyResult:
     """Open Workday application page in assisted mode.
 

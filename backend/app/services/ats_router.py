@@ -7,6 +7,7 @@ appropriate handler. Falls back to LLM-powered generic form filling.
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,7 +24,7 @@ class ApplyResult:
     mode: str = "auto"  # "auto" or "assisted" (requires user completion)
     screenshot: bytes | None = None
     error: str | None = None
-    answers_used: dict[str, str] | None = None
+    answers_used: dict[str, Any] | None = None
 
 
 # Platform handler registry
@@ -38,7 +39,13 @@ def _register_handler(pattern: str):
     return decorator
 
 
-async def route_apply(page: Page, job: dict, profile: dict, resume_path: str | None = None) -> ApplyResult:
+async def route_apply(
+    page: Page,
+    job: dict,
+    profile: dict,
+    resume_path: str | None = None,
+    user_id: uuid.UUID | None = None,
+) -> ApplyResult:
     """Detect the ATS platform from the job URL and dispatch to the handler.
 
     Args:
@@ -46,6 +53,7 @@ async def route_apply(page: Page, job: dict, profile: dict, resume_path: str | N
         job: Job listing dict with 'apply_url', 'platform', etc.
         profile: User profile dict with name, email, phone, etc.
         resume_path: Path to the user's resume file.
+        user_id: UUID of the user applying (needed for Q&A memory).
 
     Returns:
         ApplyResult indicating success/failure and details.
@@ -57,7 +65,7 @@ async def route_apply(page: Page, job: dict, profile: dict, resume_path: str | N
         if pattern in url.lower():
             logger.info(f"Routing {url} to handler for {pattern}")
             try:
-                return await handler(page, job, profile, resume_path)
+                return await handler(page, job, profile, resume_path, user_id=user_id)
             except Exception as e:
                 logger.error(f"Handler for {pattern} failed: {e}", exc_info=True)
                 return ApplyResult(success=False, platform=pattern, error=str(e))
@@ -66,7 +74,7 @@ async def route_apply(page: Page, job: dict, profile: dict, resume_path: str | N
     logger.info(f"No ATS handler matched for {url}, using generic fallback")
     try:
         from app.services.platforms.generic import handle_generic_form
-        return await handle_generic_form(page, job, profile, resume_path)
+        return await handle_generic_form(page, job, profile, resume_path, user_id=user_id)
     except Exception as e:
         logger.error(f"Generic form handler failed: {e}", exc_info=True)
         return ApplyResult(success=False, platform="generic", error=str(e))

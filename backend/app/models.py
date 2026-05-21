@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -74,10 +75,24 @@ class Profile(Base):
     expected_salary_lpa: Mapped[float | None] = mapped_column(Float)
     salary_min_lpa: Mapped[float | None] = mapped_column(Float)
     salary_max_lpa: Mapped[float | None] = mapped_column(Float)
+    experience_years: Mapped[int | None] = mapped_column(Integer)
     experience_level: Mapped[str | None] = mapped_column(String(50))
     remote_only: Mapped[bool] = mapped_column(Boolean, default=False)
     target_portals: Mapped[list[str] | None] = mapped_column(JSONB)
     notice_period_days: Mapped[int | None] = mapped_column(Integer)
+    # Salary breakdown
+    current_ctc_lpa: Mapped[float | None] = mapped_column(Float)
+    current_fixed_lpa: Mapped[float | None] = mapped_column(Float)
+    current_variable_lpa: Mapped[float | None] = mapped_column(Float)
+    # Languages & links
+    languages: Mapped[list[str] | None] = mapped_column(JSONB)
+    job_type: Mapped[str | None] = mapped_column(String(50))
+    work_mode: Mapped[str | None] = mapped_column(String(50))
+    portfolio_url: Mapped[str | None] = mapped_column(String(500))
+    linkedin_url: Mapped[str | None] = mapped_column(String(500))
+    github_url: Mapped[str | None] = mapped_column(String(500))
+    ai_summary: Mapped[str | None] = mapped_column(Text)
+    ai_summary_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -233,6 +248,10 @@ class QuestionAnswer(Base):
     platform: Mapped[str | None] = mapped_column(String(50))
     usage_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "question_text", "platform", name="uq_question_answers_user_question_platform"),
+    )
 
 
 class UsageLog(Base):

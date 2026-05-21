@@ -431,7 +431,7 @@ async def match_job_to_resume_detailed(
 
     # ── 7. Seniority Mismatch Warning ──────────────────────────────────────
     seniority_warning = None
-    if job_seniority and experience_years is not None:
+    if experience_years is not None:
         job_sen = _extract_seniority(job_title)
         if job_sen:
             expected_years = {

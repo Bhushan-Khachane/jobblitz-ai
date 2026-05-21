@@ -103,11 +103,12 @@ class BrowserPool:
         ]
 
         launch_kwargs: dict[str, Any] = {
-            "headless": True,
+            "headless": False,
             "args": launch_args,
         }
 
         self._browser = await self._playwright.chromium.launch(**launch_kwargs)
+        logger.info(f"BrowserPool launched with headless={launch_kwargs.get('headless', True)}")
 
         for i in range(self._pool_size):
             viewport = VIEWPORTS[i % len(VIEWPORTS)]
@@ -190,6 +191,47 @@ class BrowserPool:
         ctx = await self._browser.new_context(**ctx_kwargs)
         await ctx.add_init_script(STEALTH_INIT_SCRIPT)
         logger.debug(f"Created isolated context for user={user_id} (task={task_type})")
+        return ctx
+
+    async def acquire_for_user_with_portal(
+        self, user_id: str, platform: str, task_type: str = "apply", user_tier: str = "free"
+    ) -> BrowserContext:
+        """Create an isolated context and load active portal session cookies if available."""
+        ctx = await self.acquire_for_user(user_id, task_type, user_tier)
+
+        # Load portal session cookies from browser-worker state file
+        import json, os
+        from sqlalchemy import select
+        from app.models import BrowserSession
+        from app.database import engine
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+        async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        try:
+            async with async_session() as db:
+                result = await db.execute(
+                    select(BrowserSession).where(
+                        BrowserSession.user_id == user_id,
+                        BrowserSession.portal == platform,
+                        BrowserSession.status == "active",
+                        BrowserSession.verified == True,
+                    )
+                )
+                session = result.scalar_one_or_none()
+                if session:
+                    state_key = f"user_{session.session_id}_{platform}"
+                    session_dir = os.environ.get("SESSION_DIR", "/tmp/browser-worker-sessions")
+                    state_path = os.path.join(session_dir, f"{state_key}.json")
+                    if os.path.exists(state_path):
+                        with open(state_path) as f:
+                            state = json.load(f)
+                        await ctx.add_cookies(state.get("cookies", []))
+                        logger.info(f"Loaded portal cookies for user={user_id} platform={platform} from {state_path}")
+                    else:
+                        logger.warning(f"Portal session state file not found: {state_path}")
+        except Exception as e:
+            logger.warning(f"Failed to load portal cookies for user={user_id}: {e}")
+
         return ctx
 
     def available_count(self) -> int:

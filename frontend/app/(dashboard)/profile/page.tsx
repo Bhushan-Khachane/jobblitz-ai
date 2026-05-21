@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Save, Plus, X, Shield, Zap } from "lucide-react";
+import { Save, Plus, X, Shield, Zap, Sparkles, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +24,12 @@ const schema = z.object({
   summary: z.string().optional(),
   expected_salary_lpa: z.string().optional(),
   notice_period_days: z.string().optional(),
+  current_ctc_lpa: z.string().optional(),
+  current_fixed_lpa: z.string().optional(),
+  current_variable_lpa: z.string().optional(),
+  portfolio_url: z.string().optional(),
+  linkedin_url: z.string().optional(),
+  github_url: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -38,6 +44,13 @@ export default function ProfilePage() {
   const [credentials, setCredentials] = useState<any[]>([]);
   const [applyMode, setApplyMode] = useState<string>("manual");
   const [modeSaving, setModeSaving] = useState(false);
+  const [experience, setExperience] = useState<any[]>([]);
+  const [education, setEducation] = useState<any[]>([]);
+  const [certifications, setCertifications] = useState<any[]>([]);
+  const [languages, setLanguages] = useState<string[]>([]);
+  const [languageInput, setLanguageInput] = useState("");
+  const [aiSummary, setAiSummary] = useState("");
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -62,9 +75,30 @@ export default function ProfilePage() {
           summary: profile?.summary || "",
           expected_salary_lpa: profile?.expected_salary_lpa?.toString() || "",
           notice_period_days: profile?.notice_period_days?.toString() || "",
+          current_ctc_lpa: profile?.current_ctc_lpa?.toString() || "",
+          current_fixed_lpa: profile?.current_fixed_lpa?.toString() || "",
+          current_variable_lpa: profile?.current_variable_lpa?.toString() || "",
+          portfolio_url: profile?.portfolio_url || "",
+          linkedin_url: profile?.linkedin_url || "",
+          github_url: profile?.github_url || "",
         });
         if (profile?.skills) {
           setSkills(Array.isArray(profile.skills) ? profile.skills : Object.keys(profile.skills));
+        }
+        if (profile?.experience && Array.isArray(profile.experience)) {
+          setExperience(profile.experience);
+        }
+        if (profile?.education && Array.isArray(profile.education)) {
+          setEducation(profile.education);
+        }
+        if (profile?.certifications && Array.isArray(profile.certifications)) {
+          setCertifications(profile.certifications);
+        }
+        if (profile?.languages && Array.isArray(profile.languages)) {
+          setLanguages(profile.languages);
+        }
+        if (profile?.ai_summary) {
+          setAiSummary(profile.ai_summary);
         }
         setResumes(resumeRes.data || []);
         setCredentials(credRes.data || []);
@@ -90,9 +124,20 @@ export default function ProfilePage() {
       await api.put("/users/me/profile", {
         headline: data.headline || null,
         summary: data.summary || null,
+        ai_summary: aiSummary || null,
         skills: skills,
         expected_salary_lpa: data.expected_salary_lpa ? parseFloat(data.expected_salary_lpa) : null,
         notice_period_days: data.notice_period_days ? parseInt(data.notice_period_days) : null,
+        experience: experience.length > 0 ? experience : null,
+        education: education.length > 0 ? education : null,
+        certifications: certifications.length > 0 ? certifications : null,
+        languages: languages.length > 0 ? languages : null,
+        current_ctc_lpa: data.current_ctc_lpa ? parseFloat(data.current_ctc_lpa) : null,
+        current_fixed_lpa: data.current_fixed_lpa ? parseFloat(data.current_fixed_lpa) : null,
+        current_variable_lpa: data.current_variable_lpa ? parseFloat(data.current_variable_lpa) : null,
+        portfolio_url: data.portfolio_url || null,
+        linkedin_url: data.linkedin_url || null,
+        github_url: data.github_url || null,
       });
       setSuccess("Profile updated successfully!");
     } catch {
@@ -101,6 +146,43 @@ export default function ProfilePage() {
       setSaving(false);
     }
   };
+
+  // ── Experience helpers ──────────────────────────────────────────────────────
+  const addExperience = () => {
+    setExperience((prev) => [...prev, { company: "", title: "", duration: "", location: "", description: "" }]);
+  };
+  const updateExperience = (idx: number, field: string, value: string) => {
+    setExperience((prev) => prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)));
+  };
+  const removeExperience = (idx: number) => setExperience((prev) => prev.filter((_, i) => i !== idx));
+
+  // ── Education helpers ─────────────────────────────────────────────────────
+  const addEducation = () => {
+    setEducation((prev) => [...prev, { degree: "", institution: "", year: "", grade: "" }]);
+  };
+  const updateEducation = (idx: number, field: string, value: string) => {
+    setEducation((prev) => prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)));
+  };
+  const removeEducation = (idx: number) => setEducation((prev) => prev.filter((_, i) => i !== idx));
+
+  // ── Certification helpers ───────────────────────────────────────────────────
+  const addCertification = () => {
+    setCertifications((prev) => [...prev, { name: "", issuer: "", year: "" }]);
+  };
+  const updateCertification = (idx: number, field: string, value: string) => {
+    setCertifications((prev) => prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)));
+  };
+  const removeCertification = (idx: number) => setCertifications((prev) => prev.filter((_, i) => i !== idx));
+
+  // ── Language helpers ──────────────────────────────────────────────────────
+  const addLanguage = () => {
+    const trimmed = languageInput.trim();
+    if (trimmed && !languages.includes(trimmed)) {
+      setLanguages([...languages, trimmed]);
+    }
+    setLanguageInput("");
+  };
+  const removeLanguage = (lang: string) => setLanguages(languages.filter((l) => l !== lang));
 
   const addSkill = () => {
     const trimmed = skillInput.trim();
@@ -157,6 +239,21 @@ export default function ProfilePage() {
     }
   };
 
+  const handleGenerateSummary = async () => {
+    setAiSummaryLoading(true);
+    try {
+      const res = await api.post("/users/me/generate-summary");
+      if (res.data?.ai_summary) {
+        setAiSummary(res.data.ai_summary);
+        setSuccess("AI summary generated successfully!");
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to generate AI summary");
+    } finally {
+      setAiSummaryLoading(false);
+    }
+  };
+
   if (loading) return <LoadingSpinner />;
 
   return (
@@ -207,6 +304,66 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
+        {/* AI Professional Summary */}
+        <Card className="mt-6 border-indigo-500/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-indigo-400" />
+              AI Professional Summary
+            </CardTitle>
+            <p className="text-sm text-white/40 mt-1">
+              A keyword-rich summary generated from your profile and resume to maximize visibility on job portals and ATS systems.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {aiSummary ? (
+              <div className="space-y-3">
+                <textarea
+                  rows={6}
+                  className="flex w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={aiSummary}
+                  onChange={(e) => setAiSummary(e.target.value)}
+                />
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-white/30">
+                    Edit directly or regenerate to refine.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={aiSummaryLoading}
+                      onClick={handleGenerateSummary}
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-1 ${aiSummaryLoading ? "animate-spin" : ""}`} />
+                      {aiSummaryLoading ? "Generating..." : "Regenerate"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-6 space-y-3">
+                <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center mx-auto">
+                  <Sparkles className="w-6 h-6 text-indigo-400" />
+                </div>
+                <p className="text-sm text-white/40">
+                  No AI summary yet. Generate one to boost your job discoverability.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={aiSummaryLoading}
+                  onClick={handleGenerateSummary}
+                >
+                  <Sparkles className={`w-4 h-4 mr-2 ${aiSummaryLoading ? "animate-spin" : ""}`} />
+                  {aiSummaryLoading ? "Generating..." : "Generate AI Summary"}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <Card className="mt-6">
           <CardHeader>
             <CardTitle>Skills</CardTitle>
@@ -237,19 +394,190 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
+        {/* Experience */}
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Preferences</CardTitle>
+            <CardTitle>Work Experience</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {experience.map((exp, idx) => (
+              <div key={idx} className="p-4 bg-white/[0.02] rounded-lg border border-white/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-white/40">Role {idx + 1}</span>
+                  <button type="button" onClick={() => removeExperience(idx)} className="text-red-400 hover:text-red-300 text-xs">
+                    Remove
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Input placeholder="Job Title" value={exp.title || ""} onChange={(e) => updateExperience(idx, "title", e.target.value)} />
+                  <Input placeholder="Company" value={exp.company || ""} onChange={(e) => updateExperience(idx, "company", e.target.value)} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Input placeholder="Duration (e.g. 2020 – 2023)" value={exp.duration || ""} onChange={(e) => updateExperience(idx, "duration", e.target.value)} />
+                  <Input placeholder="Location" value={exp.location || ""} onChange={(e) => updateExperience(idx, "location", e.target.value)} />
+                </div>
+                <textarea
+                  rows={3}
+                  className="flex w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Brief description of responsibilities and achievements..."
+                  value={exp.description || ""}
+                  onChange={(e) => updateExperience(idx, "description", e.target.value)}
+                />
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={addExperience} className="w-full">
+              <Plus className="w-4 h-4 mr-1" /> Add Experience
+            </Button>
+            {experience.length === 0 && (
+              <p className="text-sm text-white/30 text-center">No work experience added yet</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Education */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Education</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {education.map((edu, idx) => (
+              <div key={idx} className="p-4 bg-white/[0.02] rounded-lg border border-white/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-white/40">Entry {idx + 1}</span>
+                  <button type="button" onClick={() => removeEducation(idx)} className="text-red-400 hover:text-red-300 text-xs">
+                    Remove
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Input placeholder="Degree (e.g. B.Tech Computer Science)" value={edu.degree || ""} onChange={(e) => updateEducation(idx, "degree", e.target.value)} />
+                  <Input placeholder="Institution" value={edu.institution || ""} onChange={(e) => updateEducation(idx, "institution", e.target.value)} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Input placeholder="Year (e.g. 2016 – 2020)" value={edu.year || ""} onChange={(e) => updateEducation(idx, "year", e.target.value)} />
+                  <Input placeholder="Grade / CGPA" value={edu.grade || ""} onChange={(e) => updateEducation(idx, "grade", e.target.value)} />
+                </div>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={addEducation} className="w-full">
+              <Plus className="w-4 h-4 mr-1" /> Add Education
+            </Button>
+            {education.length === 0 && (
+              <p className="text-sm text-white/30 text-center">No education added yet</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Certifications */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Certifications</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {certifications.map((cert, idx) => (
+              <div key={idx} className="p-4 bg-white/[0.02] rounded-lg border border-white/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-white/40">Cert {idx + 1}</span>
+                  <button type="button" onClick={() => removeCertification(idx)} className="text-red-400 hover:text-red-300 text-xs">
+                    Remove
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Input placeholder="Certification Name" value={cert.name || ""} onChange={(e) => updateCertification(idx, "name", e.target.value)} />
+                  <Input placeholder="Issuer / Organization" value={cert.issuer || ""} onChange={(e) => updateCertification(idx, "issuer", e.target.value)} />
+                </div>
+                <Input placeholder="Year" value={cert.year || ""} onChange={(e) => updateCertification(idx, "year", e.target.value)} />
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={addCertification} className="w-full">
+              <Plus className="w-4 h-4 mr-1" /> Add Certification
+            </Button>
+            {certifications.length === 0 && (
+              <p className="text-sm text-white/30 text-center">No certifications added yet</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Languages */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Languages</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-2 mb-3">
+              <Input
+                placeholder="Add a language..."
+                value={languageInput}
+                onChange={(e) => setLanguageInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLanguage(); } }}
+              />
+              <Button type="button" variant="outline" onClick={addLanguage}>
+                <Plus className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {languages.map((lang) => (
+                <span key={lang} className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-sm">
+                  {lang}
+                  <button type="button" onClick={() => removeLanguage(lang)} className="hover:text-red-400">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+              {languages.length === 0 && <p className="text-sm text-white/30">No languages added yet</p>}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Links */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Links & Portfolio</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="salary">Expected Salary (LPA)</Label>
-                <Input id="salary" type="number" {...register("expected_salary_lpa")} />
+                <Label htmlFor="portfolio">Portfolio / Website URL</Label>
+                <Input id="portfolio" placeholder="https://yourportfolio.com" {...register("portfolio_url")} />
+              </div>
+              <div>
+                <Label htmlFor="linkedin">LinkedIn Profile</Label>
+                <Input id="linkedin" placeholder="https://linkedin.com/in/you" {...register("linkedin_url")} />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="github">GitHub Profile</Label>
+              <Input id="github" placeholder="https://github.com/username" {...register("github_url")} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Salary & Availability</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="current_ctc">Current CTC (LPA)</Label>
+                <Input id="current_ctc" type="number" step="0.1" placeholder="e.g. 12.5" {...register("current_ctc_lpa")} />
+              </div>
+              <div>
+                <Label htmlFor="current_fixed">Current Fixed (LPA)</Label>
+                <Input id="current_fixed" type="number" step="0.1" placeholder="e.g. 10.0" {...register("current_fixed_lpa")} />
+              </div>
+              <div>
+                <Label htmlFor="current_variable">Current Variable (LPA)</Label>
+                <Input id="current_variable" type="number" step="0.1" placeholder="e.g. 2.5" {...register("current_variable_lpa")} />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="salary">Expected CTC (LPA)</Label>
+                <Input id="salary" type="number" step="0.1" placeholder="e.g. 18.0" {...register("expected_salary_lpa")} />
               </div>
               <div>
                 <Label htmlFor="notice">Notice Period (days)</Label>
-                <Input id="notice" type="number" {...register("notice_period_days")} />
+                <Input id="notice" type="number" placeholder="e.g. 30" {...register("notice_period_days")} />
               </div>
             </div>
           </CardContent>

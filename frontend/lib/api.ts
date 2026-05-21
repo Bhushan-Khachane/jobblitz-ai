@@ -59,9 +59,9 @@ interface Profile {
   headline: string | null;
   summary: string | null;
   skills: string[] | null;
-  experience: Record<string, unknown> | null;
-  education: Record<string, unknown> | null;
-  certifications: Record<string, unknown> | null;
+  experience: Record<string, unknown>[] | null;
+  education: Record<string, unknown>[] | null;
+  certifications: Record<string, unknown>[] | null;
   preferred_job_titles: string[] | null;
   preferred_locations: string[] | null;
   expected_salary_lpa: number | null;
@@ -71,6 +71,15 @@ interface Profile {
   remote_only: boolean;
   target_portals: string[] | null;
   notice_period_days: number | null;
+  current_ctc_lpa: number | null;
+  current_fixed_lpa: number | null;
+  current_variable_lpa: number | null;
+  languages: string[] | null;
+  job_type: string | null;
+  work_mode: string | null;
+  portfolio_url: string | null;
+  linkedin_url: string | null;
+  github_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -169,7 +178,7 @@ export const authAPI = {
 // ── Resumes API ─────────────────────────────────────────────────────────────
 
 export const resumesAPI = {
-  list: () => api.get<Resume[]>("/resumes").then((r) => r.data),
+  list: () => api.get<Resume[]>("/resumes/").then((r) => r.data),
 
   upload: (file: File, title?: string, is_default?: boolean) => {
     const form = new FormData();
@@ -282,6 +291,9 @@ export const applicationsAPI = {
 
   reject: (id: string) =>
     api.post<{ message: string; application_id: string }>(`/applications/${id}/reject`).then((r) => r.data),
+
+  answerQuestions: (id: string, answers: { question: string; answer: string }[]) =>
+    api.post<{ message: string; application_id: string; saved: number }>(`/applications/${id}/answer-questions`, { answers }).then((r) => r.data),
 };
 
 // ── Analytics API ───────────────────────────────────────────────────────────
@@ -325,6 +337,9 @@ export const usersAPI = {
 
   updateProfile: (data: Record<string, unknown>) =>
     api.put<Profile>("/users/me/profile", data).then((r) => r.data),
+
+  generateSummary: () =>
+    api.post<Profile>("/users/me/generate-summary").then((r) => r.data),
 };
 
 // ── Portal Sessions API ─────────────────────────────────────────────────────

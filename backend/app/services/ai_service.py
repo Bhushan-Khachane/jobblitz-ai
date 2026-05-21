@@ -29,9 +29,36 @@ EXTRACT_RESUME_PROFILE_SYSTEM = (
     '- "headline": one-line professional headline\n'
     '- "summary": 2-3 sentence professional summary\n'
     '- "experience_years": integer total years of experience\n'
-    '- "education": list of degrees (e.g., ["B.Tech Computer Science"])\n'
-    '- "experience": list of recent roles with company and duration\n'
+    '- "education": list of degrees with institution and year (e.g., [{"degree": "B.Tech Computer Science", "institution": "IIT Bombay", "year": "2018"}])\n'
+    '- "experience": list of roles with company, title, duration, and description '
+    '(e.g., [{"company": "Google", "title": "Senior Engineer", "duration": "2020-2023", "description": "Built ML pipelines"}])\n'
+    '- "certifications": list of certifications with issuer and year '
+    '(e.g., [{"name": "AWS Solutions Architect", "issuer": "Amazon", "year": "2022"}])\n'
+    '- "languages": list of languages known (e.g., ["English", "Hindi", "Marathi"])\n'
+    '- "current_ctc_lpa": number — current annual CTC in lakhs (e.g., 12.5)\n'
+    '- "current_fixed_lpa": number — current fixed component in lakhs\n'
+    '- "current_variable_lpa": number — current variable/bonus component in lakhs\n'
+    '- "portfolio_url": string — portfolio or personal website URL\n'
+    '- "linkedin_url": string — LinkedIn profile URL\n'
+    '- "github_url": string — GitHub profile URL\n'
+    "Always return arrays (even empty) for skills, job_titles, education, experience, certifications, and languages. "
+    "Return null for any field not found in the resume. "
     "Do NOT wrap in markdown code blocks. Return raw JSON only."
+)
+
+GENERATE_PROFESSIONAL_SUMMARY_SYSTEM = (
+    "You are an elite career strategist and resume writer specializing in the Indian job market. "
+    "Given a candidate's profile data and resume text, write a compelling, keyword-rich professional summary "
+    "that maximizes visibility on job portals (LinkedIn, Naukri, Indeed) and ATS systems.\n\n"
+    "Requirements:\n"
+    "- 4-6 sentences, 250-350 words total\n"
+    "- Lead with strongest differentiator (years of experience + core expertise)\n"
+    "- Weave in key technical skills naturally (don't just list them)\n"
+    "- Mention top achievements with metrics if available\n"
+    "- Include target role alignment and career trajectory\n"
+    "- Optimize for recruiter search keywords relevant to Indian market\n"
+    "- Tone: confident, professional, action-oriented\n"
+    "- Return ONLY the summary text. No markdown, no labels, no explanation."
 )
 
 MATCH_JOB_RESUME_SYSTEM = (
@@ -77,6 +104,14 @@ async def extract_resume_profile(resume_text: str) -> dict:
     client = get_llm_client()
     user_msg = f"### RESUME\n{resume_text}\n\nExtract the structured profile."
     return await client.generate_structured(EXTRACT_RESUME_PROFILE_SYSTEM, user_msg)
+
+
+async def generate_professional_summary(profile_data: dict, resume_text: str | None = None) -> str:
+    """Generate an AI-crafted professional summary from profile + resume data."""
+    parts = ["### CANDIDATE PROFILE\n" + str(profile_data)]
+    if resume_text:
+        parts.append(f"### RESUME TEXT\n{resume_text}")
+    return await _chat(GENERATE_PROFESSIONAL_SUMMARY_SYSTEM, "\n\n".join(parts))
 
 
 async def match_job_to_resume_llm(job_description: str, resume_text: str) -> float:

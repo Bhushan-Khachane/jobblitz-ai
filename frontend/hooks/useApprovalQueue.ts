@@ -42,5 +42,13 @@ export function useApprovalQueue() {
     []
   );
 
-  return { queue, loading, error, refetch: fetch, approve, reject };
+  const answerQuestions = useCallback(
+    async (id: string, answers: { question: string; answer: string }[]) => {
+      await applicationsAPI.answerQuestions(id, answers);
+      setQueue((q) => q.filter((a) => a.id !== id));
+    },
+    []
+  );
+
+  return { queue, loading, error, refetch: fetch, approve, reject, answerQuestions };
 }

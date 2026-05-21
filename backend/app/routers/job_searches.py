@@ -282,6 +282,7 @@ async def run_search(
                         preferred_locations=profile.preferred_locations if profile else None,
                         expected_salary_lpa=profile.expected_salary_lpa if profile else None,
                         notice_period_days=profile.notice_period_days if profile else None,
+                        experience_years=profile.experience_years if profile else None,
                     )
                     listing.match_score = match_result.final_score
                     listing.match_explanation = match_result.to_dict()

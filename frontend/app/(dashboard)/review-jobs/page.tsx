@@ -132,14 +132,14 @@ export default function ReviewJobsPage() {
                 </h3>
                 <span
                   className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                    score.fit_score >= 80
+                    score.fit_score >= 0.8
                       ? "bg-green-500/20 text-green-400"
-                      : score.fit_score >= 60
+                      : score.fit_score >= 0.6
                       ? "bg-amber-500/20 text-amber-400"
                       : "bg-red-500/20 text-red-400"
                   }`}
                 >
-                  Fit {score.fit_score}%
+                  Fit {Math.round(score.fit_score * 100)}%
                 </span>
                 {appliedIds.has(score.id) && (
                   <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400">
