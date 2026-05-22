@@ -643,3 +643,219 @@ async def batch_auto_apply(ctx: dict) -> dict:
             raise
 
     return {"dispatched": dispatched, "queued_for_approval": queued_for_approval}
+
+
+async def run_discovery_scoring(ctx: dict, user_id: str | None = None) -> dict:
+    """Discovery + 5-factor scoring pipeline for JobRecommendations table.
+
+    1. Load user's active JobSearches
+    2. Scrape jobs from each platform
+    3. Parse candidate profile
+    4. Score each job (skill, experience, cert, location, domain)
+    5. Deduplicate by user_id + external_job_id
+    6. Save to job_recommendations
+    """
+    from app.services.match_scorer import CandidateProfile, JobListing as ScorerJob, compute_match_score, priority_tier, enrich_job_with_llm
+    from app.services.profile_parser import parse_candidate_profile
+    from app.services.salary_estimator import estimate_salary
+    from app.models import JobRecommendation
+
+    total_scored = 0
+    total_saved = 0
+    duplicates_skipped = 0
+    low_score_skipped = 0
+
+    async with _async_session() as db:
+        # Build search query
+        search_query = select(JobSearch).where(JobSearch.is_active == True)
+        if user_id:
+            search_query = search_query.where(JobSearch.user_id == uuid.UUID(user_id))
+        result = await db.execute(search_query)
+        searches = result.scalars().all()
+
+        for search in searches:
+            search_id_str = str(search.id)
+            search_user_id = search.user_id
+            uid = str(search_user_id)
+            try:
+                # Parse candidate profile
+                profile = await parse_candidate_profile(uid, db)
+                if not profile:
+                    logger.warning(f"No profile for user {uid}, skipping search {search_id_str}")
+                    continue
+
+                # Scrape jobs
+                keywords = search.keywords
+                location = search.location
+                exp_level = search.experience_level
+                remote_only = search.remote_only
+
+                raw_jobs: list[dict] = []
+                platforms = [p.strip() for p in search.platform.split(",")] if "," in search.platform else [search.platform]
+                for platform in platforms:
+                    platform = platform.strip().lower()
+                    try:
+                        if platform == "linkedin":
+                            jobs = await scrape_linkedin_jobs(
+                                keywords=keywords,
+                                location=location,
+                                experience_level=exp_level,
+                                remote_only=remote_only,
+                                max_results=20,
+                            )
+                            raw_jobs.extend(jobs)
+                        elif platform == "naukri":
+                            jobs = await scrape_naukri_jobs(
+                                keywords=keywords,
+                                location=location,
+                                experience_level=exp_level,
+                                max_results=20,
+                            )
+                            raw_jobs.extend(jobs)
+                        else:
+                            logger.warning(f"Platform '{platform}' not implemented for discovery scoring")
+                    except Exception as scrape_err:
+                        logger.warning(f"Scraper failed for {platform} search {search_id_str}: {scrape_err}")
+                        continue
+
+                logger.info(f"Discovery scoring for search {search_id_str}: {len(raw_jobs)} raw jobs from {platforms}")
+
+                for job_data in raw_jobs:
+                    try:
+                        ext_id = job_data.get("external_job_id") or ""
+                        if not ext_id:
+                            # fallback ID from title + company hash
+                            ext_id = hashlib.md5(f"{job_data.get('title','')}-{job_data.get('company','')}".encode()).hexdigest()[:16]
+
+                        # Deduplicate against existing job_recommendations
+                        dup_check = await db.execute(
+                            select(JobRecommendation).where(
+                                JobRecommendation.user_id == search_user_id,
+                                JobRecommendation.job_id == ext_id,
+                            )
+                        )
+                        if dup_check.scalar_one_or_none():
+                            duplicates_skipped += 1
+                            continue
+
+                        # Build scorer JobListing
+                        exp_text = job_data.get("experience", "")
+                        # Try to extract min/max years from text
+                        from app.services.match_scorer import _extract_experience_regex
+                        exp_min, exp_max = _extract_experience_regex(exp_text)
+
+                        scorer_job = ScorerJob(
+                            job_id=ext_id,
+                            company=job_data.get("company", ""),
+                            role=job_data.get("title", ""),
+                            location=job_data.get("location"),
+                            job_type=job_data.get("job_type"),
+                            description=job_data.get("description", ""),
+                            experience_required=exp_text,
+                            salary_raw=job_data.get("salary_info"),
+                            apply_link=job_data.get("apply_url", ""),
+                            source_portal=job_data.get("platform", ""),
+                            experience_min=exp_min,
+                            experience_max=exp_max,
+                        )
+
+                        # Enrich with LLM if description is sparse
+                        if len(scorer_job.description) < 200:
+                            try:
+                                await enrich_job_with_llm(scorer_job)
+                            except Exception as enrich_err:
+                                logger.warning(f"LLM enrichment failed for {ext_id}: {enrich_err}")
+
+                        # Compute match score
+                        match_score, breakdown = compute_match_score(profile, scorer_job)
+                        total_scored += 1
+
+                        # Skip very low scores
+                        if match_score < 0.5:
+                            low_score_skipped += 1
+                            continue
+
+                        # Estimate salary if missing
+                        salary_estimate = job_data.get("salary_info")
+                        if not salary_estimate and match_score >= 0.6:
+                            try:
+                                est = await estimate_salary(
+                                    title=scorer_job.role,
+                                    company=scorer_job.company,
+                                    location=scorer_job.location or "India",
+                                    experience_required=scorer_job.experience_required,
+                                    skills=scorer_job.primary_skills or [],
+                                )
+                                salary_estimate = f"{est.get('min_lpa', 0)}-{est.get('max_lpa', 0)} LPA"
+                            except Exception as sal_err:
+                                logger.warning(f"Salary estimation failed: {sal_err}")
+
+                        # Build skill breakdown for UI
+                        skill_breakdown = {
+                            "matched": list(
+                                set(s.lower() for s in profile.core_skills) &
+                                set(s.lower() for s in (scorer_job.primary_skills or []))
+                            ),
+                            "missing": list(
+                                set(s.lower() for s in (scorer_job.primary_skills or [])) -
+                                set(s.lower() for s in profile.core_skills)
+                            ),
+                            "all_scores": breakdown,
+                        }
+
+                        rec = JobRecommendation(
+                            user_id=search_user_id,
+                            job_id=ext_id,
+                            company=scorer_job.company or None,
+                            role=scorer_job.role or None,
+                            location=scorer_job.location or None,
+                            job_type=scorer_job.job_type or None,
+                            experience_required=scorer_job.experience_required or None,
+                            salary_estimate=salary_estimate or None,
+                            match_score=match_score,
+                            match_score_pct=int(match_score * 100),
+                            priority_tier=priority_tier(match_score),
+                            skill_breakdown=skill_breakdown,
+                            apply_link=scorer_job.apply_link or None,
+                            source_portal=scorer_job.source_portal or None,
+                            raw_description=scorer_job.description[:2000] if scorer_job.description else None,
+                            discovered_at=datetime.now(timezone.utc),
+                            status="discovered",
+                        )
+                        db.add(rec)
+                        total_saved += 1
+
+                    except Exception as inner_err:
+                        logger.warning(f"Failed to score job {job_data.get('title')}: {inner_err}")
+                        continue
+
+                search.last_run_at = datetime.now(timezone.utc)
+                await db.commit()
+                await db.refresh(search)
+
+                # Log usage
+                log = UsageLog(
+                    user_id=search_user_id,
+                    action="discover_score",
+                    details={
+                        "search_id": search_id_str,
+                        "raw": len(raw_jobs),
+                        "saved": total_saved,
+                        "skipped_dup": duplicates_skipped,
+                        "skipped_low": low_score_skipped,
+                    },
+                )
+                db.add(log)
+                await db.commit()
+
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Discovery scoring failed for search {search_id_str}: {e}", exc_info=True)
+                continue
+
+    return {
+        "scored": total_scored,
+        "saved": total_saved,
+        "duplicates_skipped": duplicates_skipped,
+        "low_score_skipped": low_score_skipped,
+    }

@@ -93,6 +93,8 @@ class Profile(Base):
     github_url: Mapped[str | None] = mapped_column(String(500))
     ai_summary: Mapped[str | None] = mapped_column(Text)
     ai_summary_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    parsed_profile: Mapped[dict | None] = mapped_column(JSONB)
+    profile_parsed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -425,6 +427,39 @@ class JobScore(Base):
 
     __table_args__ = (Index("ix_job_scores_user_id", "user_id"), Index("ix_job_scores_fit_score", "fit_score"))
 
+
+class JobRecommendation(Base):
+    """Scored job recommendations per user from the discovery pipeline."""
+    __tablename__ = "job_recommendations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    job_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    company: Mapped[str | None] = mapped_column(String(500))
+    role: Mapped[str | None] = mapped_column(String(500))
+    location: Mapped[str | None] = mapped_column(String(300))
+    job_type: Mapped[str | None] = mapped_column(String(50))
+    experience_required: Mapped[str | None] = mapped_column(String(100))
+    salary_estimate: Mapped[str | None] = mapped_column(String(100))
+    match_score: Mapped[float] = mapped_column(Float, nullable=False)
+    match_score_pct: Mapped[int] = mapped_column(Integer, nullable=False)
+    priority_tier: Mapped[str | None] = mapped_column(String(20))
+    skill_breakdown: Mapped[dict | None] = mapped_column(JSONB)
+    apply_link: Mapped[str | None] = mapped_column(Text)
+    source_portal: Mapped[str | None] = mapped_column(String(100))
+    raw_description: Mapped[str | None] = mapped_column(Text)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(50), default="discovered")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "job_id", name="uq_job_recs_user_job"),
+        Index("idx_job_recs_user_score", "user_id", match_score.desc()),
+        Index("idx_job_recs_tier", "user_id", "priority_tier"),
+        Index("idx_job_recs_status", "user_id", "status"),
+    )
 
 class ApplicationPlan(Base):
     """AI-generated application plans before execution."""

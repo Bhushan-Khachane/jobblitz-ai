@@ -351,4 +351,54 @@ export const portalSessionsAPI = {
 
 // ── Default export: raw axios instance ──────────────────────────────────────
 
+// ── Job Recommendations API ─────────────────────────────────────────────────
+
+export interface JobRecommendation {
+  id: string;
+  job_id: string;
+  company: string | null;
+  role: string | null;
+  location: string | null;
+  job_type: string | null;
+  experience_required: string | null;
+  salary_estimate: string | null;
+  match_score: number;
+  match_score_pct: number;
+  priority_tier: string | null;
+  skill_breakdown: Record<string, unknown> | null;
+  apply_link: string | null;
+  source_portal: string | null;
+  discovered_at: string;
+  status: string;
+}
+
+export const jobsAPI = {
+  discover: () =>
+    api.post<{ task_id: string; estimated_seconds: number }>("/jobs/discover").then((r) => r.data),
+
+  list: (params?: { tier?: string; limit?: number; offset?: number; sort?: string }) =>
+    api.get<JobRecommendation[]>("/jobs/recommendations", { params }).then((r) => r.data),
+
+  getById: (jobId: string) =>
+    api.get<JobRecommendation>(`/jobs/recommendations/${jobId}`).then((r) => r.data),
+
+  apply: (jobId: string) =>
+    api.post<{ queued: boolean; position: number }>(`/jobs/recommendations/${jobId}/apply`).then((r) => r.data),
+
+  dismiss: (jobId: string) =>
+    api.delete(`/jobs/recommendations/${jobId}`).then((r) => r.data),
+
+  profileSummary: () =>
+    api.get<{
+      headline: string;
+      summary: string;
+      core_skills: string[];
+      experience_years: number;
+      preferred_locations: string[];
+      certifications: string[];
+      salary_min_lpa: number | null;
+      salary_max_lpa: number | null;
+    }>("/jobs/profile/summary").then((r) => r.data),
+};
+
 export default api;

@@ -22,6 +22,7 @@ from app.routers import (
     job_leads,
     job_listings,
     job_searches,
+    jobs,
     resumes,
     status_sync,
     users,
@@ -153,6 +154,7 @@ app.include_router(cover_letters.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(portal_sessions.router, prefix="/api/v1")
 app.include_router(discovery.router, prefix="/api/v1")
+app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(scoring.router, prefix="/api/v1")
 app.include_router(application_plans_router.router, prefix="/api/v1")
 app.include_router(status_sync.router, prefix="/api/v1")

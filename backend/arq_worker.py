@@ -38,6 +38,7 @@ from app.workers.tasks import (
     cleanup_old_listings,
     check_application_statuses,
     batch_auto_apply,
+    run_discovery_scoring,
 )
 from app.workers.tasks.cleanup_sessions import cleanup_sessions
 
@@ -54,6 +55,7 @@ class WorkerSettings:
         check_application_statuses,
         batch_auto_apply,
         cleanup_sessions,
+        run_discovery_scoring,
     ]
 
     cron_jobs = [

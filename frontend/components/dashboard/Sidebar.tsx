@@ -16,12 +16,14 @@ import {
   ClipboardCheck,
   Link2,
   Bell,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/jobs", label: "Jobs", icon: Sparkles },
   { href: "/profile", label: "My Profile", icon: User },
   { href: "/portals", label: "Portals", icon: Link2 },
   { href: "/discovery", label: "Discovery", icon: Search },
