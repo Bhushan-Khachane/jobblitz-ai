@@ -4,7 +4,7 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
@@ -667,34 +667,43 @@ async def run_discovery_scoring(ctx: dict, user_id: str | None = None) -> dict:
     low_score_skipped = 0
 
     async with _async_session() as db:
-        # Build search query
-        search_query = select(JobSearch).where(JobSearch.is_active == True)
+        # Load searches as plain tuples to avoid ORM lazy-loading after subprocess calls
+        search_query = select(
+            JobSearch.id,
+            JobSearch.user_id,
+            JobSearch.keywords,
+            JobSearch.location,
+            JobSearch.experience_level,
+            JobSearch.remote_only,
+            JobSearch.platform,
+        ).where(JobSearch.is_active == True)
         if user_id:
             search_query = search_query.where(JobSearch.user_id == uuid.UUID(user_id))
         result = await db.execute(search_query)
-        searches = result.scalars().all()
+        searches = result.all()
 
-        for search in searches:
-            search_id_str = str(search.id)
-            search_user_id = search.user_id
+        for row in searches:
+            search_id = row[0]
+            search_id_str = str(search_id)
+            search_user_id = row[1]
             uid = str(search_user_id)
+            keywords = row[2]
+            location = row[3]
+            exp_level = row[4]
+            remote_only = row[5]
+            platforms_raw = row[6]
+
             try:
-                # Parse candidate profile
+                # Parse candidate profile (BEFORE subprocess calls)
                 profile = await parse_candidate_profile(uid, db)
                 if not profile:
                     logger.warning(f"No profile for user {uid}, skipping search {search_id_str}")
                     continue
 
-                # Scrape jobs
-                keywords = search.keywords
-                location = search.location
-                exp_level = search.experience_level
-                remote_only = search.remote_only
-
-                # Run scrapers in isolated subprocesses via PlaywrightExecutor
+                # ── Run scrapers in isolated subprocesses ──
                 from browser.playwright_executor import playwright_executor
                 raw_jobs: list[dict] = []
-                platforms = [p.strip() for p in search.platform.split(",")] if "," in search.platform else [search.platform]
+                platforms = [p.strip() for p in platforms_raw.split(",")] if "," in platforms_raw else [platforms_raw]
                 scraper_tasks = []
                 for platform in platforms:
                     platform = platform.strip().lower()
@@ -732,125 +741,128 @@ async def run_discovery_scoring(ctx: dict, user_id: str | None = None) -> dict:
                         else:
                             logger.warning(f"Scraper returned exception: {res}")
 
-                # Graceful degradation: if ALL scrapers returned empty, do NOT wipe existing recommendations
+                # Graceful degradation
                 if len(raw_jobs) == 0:
                     logger.warning(f"All scrapers returned 0 jobs for user {uid} search {search_id_str}")
                     continue
 
                 logger.info(f"Discovery scoring for search {search_id_str}: {len(raw_jobs)} raw jobs from {platforms}")
 
-                for job_data in raw_jobs:
-                    try:
-                        ext_id = job_data.get("external_job_id") or ""
-                        if not ext_id:
-                            # fallback ID from title + company hash
-                            ext_id = hashlib.md5(f"{job_data.get('title','')}-{job_data.get('company','')}".encode()).hexdigest()[:16]
+                # ── no_autoflush prevents greenlet-loss crashes during queries in the loop ──
+                with db.no_autoflush:
+                    for job_data in raw_jobs:
+                        try:
+                            ext_id = job_data.get("external_job_id") or ""
+                            if not ext_id:
+                                ext_id = hashlib.md5(
+                                    f"{job_data.get('title', '')}-{job_data.get('company', '')}".encode()
+                                ).hexdigest()[:16]
 
-                        # Deduplicate against existing job_recommendations
-                        dup_check = await db.execute(
-                            select(JobRecommendation).where(
-                                JobRecommendation.user_id == search_user_id,
-                                JobRecommendation.job_id == ext_id,
-                            )
-                        )
-                        if dup_check.scalar_one_or_none():
-                            duplicates_skipped += 1
-                            continue
-
-                        # Build scorer JobListing
-                        exp_text = job_data.get("experience", "")
-                        # Try to extract min/max years from text
-                        from app.services.match_scorer import _extract_experience_regex
-                        exp_min, exp_max = _extract_experience_regex(exp_text)
-
-                        scorer_job = ScorerJob(
-                            job_id=ext_id,
-                            company=job_data.get("company", ""),
-                            role=job_data.get("title", ""),
-                            location=job_data.get("location"),
-                            job_type=job_data.get("job_type"),
-                            description=job_data.get("description", ""),
-                            experience_required=exp_text,
-                            salary_raw=job_data.get("salary_info"),
-                            apply_link=job_data.get("apply_url", ""),
-                            source_portal=job_data.get("platform", ""),
-                            experience_min=exp_min,
-                            experience_max=exp_max,
-                        )
-
-                        # Enrich with LLM if description is sparse
-                        if len(scorer_job.description) < 200:
-                            try:
-                                await enrich_job_with_llm(scorer_job)
-                            except Exception as enrich_err:
-                                logger.warning(f"LLM enrichment failed for {ext_id}: {enrich_err}")
-
-                        # Compute match score
-                        match_score, breakdown = compute_match_score(profile, scorer_job)
-                        total_scored += 1
-
-                        # Skip very low scores
-                        if match_score < 0.5:
-                            low_score_skipped += 1
-                            continue
-
-                        # Estimate salary if missing
-                        salary_estimate = job_data.get("salary_info")
-                        if not salary_estimate and match_score >= 0.6:
-                            try:
-                                est = await estimate_salary(
-                                    title=scorer_job.role,
-                                    company=scorer_job.company,
-                                    location=scorer_job.location or "India",
-                                    experience_required=scorer_job.experience_required,
-                                    skills=scorer_job.primary_skills or [],
+                            dup_check = await db.execute(
+                                select(JobRecommendation).where(
+                                    JobRecommendation.user_id == search_user_id,
+                                    JobRecommendation.job_id == ext_id,
                                 )
-                                salary_estimate = f"{est.get('min_lpa', 0)}-{est.get('max_lpa', 0)} LPA"
-                            except Exception as sal_err:
-                                logger.warning(f"Salary estimation failed: {sal_err}")
+                            )
+                            if dup_check.scalar_one_or_none():
+                                duplicates_skipped += 1
+                                continue
 
-                        # Build skill breakdown for UI
-                        skill_breakdown = {
-                            "matched": list(
-                                set(s.lower() for s in profile.core_skills) &
-                                set(s.lower() for s in (scorer_job.primary_skills or []))
-                            ),
-                            "missing": list(
-                                set(s.lower() for s in (scorer_job.primary_skills or [])) -
-                                set(s.lower() for s in profile.core_skills)
-                            ),
-                            "all_scores": breakdown,
-                        }
+                            exp_text = job_data.get("experience", "")
+                            from app.services.match_scorer import _extract_experience_regex
+                            exp_min, exp_max = _extract_experience_regex(exp_text)
 
-                        rec = JobRecommendation(
-                            user_id=search_user_id,
-                            job_id=ext_id,
-                            company=scorer_job.company or None,
-                            role=scorer_job.role or None,
-                            location=scorer_job.location or None,
-                            job_type=scorer_job.job_type or None,
-                            experience_required=scorer_job.experience_required or None,
-                            salary_estimate=salary_estimate or None,
-                            match_score=match_score,
-                            match_score_pct=int(match_score * 100),
-                            priority_tier=priority_tier(match_score),
-                            skill_breakdown=skill_breakdown,
-                            apply_link=scorer_job.apply_link or None,
-                            source_portal=scorer_job.source_portal or None,
-                            raw_description=scorer_job.description[:2000] if scorer_job.description else None,
-                            discovered_at=datetime.now(timezone.utc),
-                            status="discovered",
-                        )
-                        db.add(rec)
-                        total_saved += 1
+                            scorer_job = ScorerJob(
+                                job_id=ext_id,
+                                company=job_data.get("company", ""),
+                                role=job_data.get("title", ""),
+                                location=job_data.get("location"),
+                                job_type=job_data.get("job_type"),
+                                description=job_data.get("description", ""),
+                                experience_required=exp_text,
+                                salary_raw=job_data.get("salary_info"),
+                                apply_link=job_data.get("apply_url", ""),
+                                source_portal=job_data.get("platform", ""),
+                                experience_min=exp_min,
+                                experience_max=exp_max,
+                            )
 
-                    except Exception as inner_err:
-                        logger.warning(f"Failed to score job {job_data.get('title')}: {inner_err}")
-                        continue
+                            if len(scorer_job.description) < 200:
+                                try:
+                                    await enrich_job_with_llm(scorer_job)
+                                except Exception as enrich_err:
+                                    logger.warning(f"LLM enrichment failed for {ext_id}: {enrich_err}")
 
-                search.last_run_at = datetime.now(timezone.utc)
+                            match_score, breakdown = compute_match_score(profile, scorer_job)
+                            total_scored += 1
+
+                            if match_score < 0.5:
+                                low_score_skipped += 1
+                                continue
+
+                            salary_estimate = job_data.get("salary_info")
+                            if not salary_estimate and match_score >= 0.6:
+                                try:
+                                    est = await estimate_salary(
+                                        title=scorer_job.role,
+                                        company=scorer_job.company,
+                                        location=scorer_job.location or "India",
+                                        experience_required=scorer_job.experience_required,
+                                        skills=scorer_job.primary_skills or [],
+                                    )
+                                    salary_estimate = f"{est.get('min_lpa', 0)}-{est.get('max_lpa', 0)} LPA"
+                                except Exception as sal_err:
+                                    logger.warning(f"Salary estimation failed: {sal_err}")
+
+                            skill_breakdown = {
+                                "matched": list(
+                                    set(s.lower() for s in profile.core_skills)
+                                    & set(s.lower() for s in (scorer_job.primary_skills or []))
+                                ),
+                                "missing": list(
+                                    set(s.lower() for s in (scorer_job.primary_skills or []))
+                                    - set(s.lower() for s in profile.core_skills)
+                                ),
+                                "all_scores": breakdown,
+                            }
+
+                            rec = JobRecommendation(
+                                user_id=search_user_id,
+                                job_id=ext_id,
+                                company=scorer_job.company or None,
+                                role=scorer_job.role or None,
+                                location=scorer_job.location or None,
+                                job_type=scorer_job.job_type or None,
+                                experience_required=scorer_job.experience_required or None,
+                                salary_estimate=salary_estimate or None,
+                                match_score=match_score,
+                                match_score_pct=int(match_score * 100),
+                                priority_tier=priority_tier(match_score),
+                                skill_breakdown=skill_breakdown,
+                                apply_link=scorer_job.apply_link or None,
+                                source_portal=scorer_job.source_portal or None,
+                                raw_description=scorer_job.description[:2000] if scorer_job.description else None,
+                                discovered_at=datetime.now(timezone.utc),
+                                status="discovered",
+                            )
+                            db.add(rec)
+                            total_saved += 1
+
+                        except Exception as inner_err:
+                            logger.warning(f"Failed to score job {job_data.get('title')}: {inner_err}")
+                            continue
+
+                # Explicit flush + commit after no_autoflush block
+                await db.flush()
                 await db.commit()
-                await db.refresh(search)
+
+                # Update search.last_run_at with explicit query (avoid ORM lazy-load after subprocess)
+                await db.execute(
+                    update(JobSearch)
+                    .where(JobSearch.id == search_id)
+                    .values(last_run_at=datetime.now(timezone.utc))
+                )
+                await db.commit()
 
                 # Log usage
                 log = UsageLog(
@@ -868,7 +880,10 @@ async def run_discovery_scoring(ctx: dict, user_id: str | None = None) -> dict:
                 await db.commit()
 
             except Exception as e:
-                await db.rollback()
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
                 logger.error(f"Discovery scoring failed for search {search_id_str}: {e}", exc_info=True)
                 continue
 
