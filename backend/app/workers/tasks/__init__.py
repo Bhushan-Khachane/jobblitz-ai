@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -9,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import settings
 from app.database import engine
 from app.models import Application, Credential, DeadLetterLog, JobListing, JobSearch, Profile, Resume, UsageLog, User
-from app.services.scraper_service import scrape_linkedin_jobs, scrape_naukri_jobs
 from app.services.matching_service import match_job_to_resume_detailed
+from app.services.scraper_service import scrape_linkedin_jobs, scrape_naukri_jobs
 
 import logging
 
@@ -690,33 +691,51 @@ async def run_discovery_scoring(ctx: dict, user_id: str | None = None) -> dict:
                 exp_level = search.experience_level
                 remote_only = search.remote_only
 
+                # Run scrapers in isolated subprocesses via PlaywrightExecutor
+                from browser.playwright_executor import playwright_executor
                 raw_jobs: list[dict] = []
                 platforms = [p.strip() for p in search.platform.split(",")] if "," in search.platform else [search.platform]
+                scraper_tasks = []
                 for platform in platforms:
                     platform = platform.strip().lower()
-                    try:
-                        if platform == "linkedin":
-                            jobs = await scrape_linkedin_jobs(
+                    if platform == "linkedin":
+                        scraper_tasks.append(
+                            playwright_executor.run_scraper(
+                                scraper_fn_path="app.services.scraper_service.scrape_linkedin_jobs",
+                                timeout_seconds=90,
                                 keywords=keywords,
                                 location=location,
                                 experience_level=exp_level,
                                 remote_only=remote_only,
                                 max_results=20,
                             )
-                            raw_jobs.extend(jobs)
-                        elif platform == "naukri":
-                            jobs = await scrape_naukri_jobs(
+                        )
+                    elif platform == "naukri":
+                        scraper_tasks.append(
+                            playwright_executor.run_scraper(
+                                scraper_fn_path="app.services.scraper_service.scrape_naukri_jobs",
+                                timeout_seconds=90,
                                 keywords=keywords,
                                 location=location,
                                 experience_level=exp_level,
                                 max_results=20,
                             )
-                            raw_jobs.extend(jobs)
+                        )
+                    else:
+                        logger.warning(f"Platform '{platform}' not implemented for discovery scoring")
+
+                if scraper_tasks:
+                    scraper_results = await asyncio.gather(*scraper_tasks, return_exceptions=True)
+                    for res in scraper_results:
+                        if isinstance(res, list):
+                            raw_jobs.extend(res)
                         else:
-                            logger.warning(f"Platform '{platform}' not implemented for discovery scoring")
-                    except Exception as scrape_err:
-                        logger.warning(f"Scraper failed for {platform} search {search_id_str}: {scrape_err}")
-                        continue
+                            logger.warning(f"Scraper returned exception: {res}")
+
+                # Graceful degradation: if ALL scrapers returned empty, do NOT wipe existing recommendations
+                if len(raw_jobs) == 0:
+                    logger.warning(f"All scrapers returned 0 jobs for user {uid} search {search_id_str}")
+                    continue
 
                 logger.info(f"Discovery scoring for search {search_id_str}: {len(raw_jobs)} raw jobs from {platforms}")
 

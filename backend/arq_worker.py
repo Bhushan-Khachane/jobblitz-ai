@@ -14,10 +14,12 @@ async def startup(ctx: dict) -> None:
     """Initialize resources on worker startup."""
     from app.services.browser_pool import browser_pool
     from app.services.scraper_browser import scraper_browser
+    from browser.playwright_executor import playwright_executor
     await browser_pool.initialize()
     await scraper_browser.initialize()
     ctx["browser_pool"] = browser_pool
     ctx["scraper_browser"] = scraper_browser
+    ctx["playwright_executor"] = playwright_executor
     ctx["started"] = True
 
 
@@ -25,8 +27,10 @@ async def shutdown(ctx: dict) -> None:
     """Clean up resources on worker shutdown."""
     from app.services.browser_pool import browser_pool
     from app.services.scraper_browser import scraper_browser
+    from browser.playwright_executor import playwright_executor
     await browser_pool.shutdown()
     await scraper_browser.shutdown()
+    await playwright_executor.shutdown()
 
 
 # Import task functions
@@ -68,10 +72,11 @@ class WorkerSettings:
     ]
 
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
-    max_jobs = 20
-    job_timeout = 300
-    keep_result = 600
+    max_jobs = 2
+    job_timeout = 600
+    keep_result = 3600
     retry_jobs = True
-    max_tries = 3
+    max_tries = 2
+    poll_delay = 1.0
     on_startup = startup
     on_shutdown = shutdown
