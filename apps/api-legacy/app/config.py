@@ -17,12 +17,18 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
     # ── LLM Configuration ─────────────────────────────────────────────────────
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-1.5-flash"
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
     LLM_FALLBACK_ENABLED: bool = True
+
+    # ── Perplexity Sonar (real-time web-grounded job discovery) ───────────────
+    PERPLEXITY_API_KEY: str = ""
+    PERPLEXITY_MODEL: str = "sonar-pro"          # sonar | sonar-pro | sonar-reasoning
+    PERPLEXITY_SEARCH_RECENCY_FILTER: str = "week"  # month | week | day | hour
 
     # ── Ollama Pro (preferred provider) ──────────────────────────────────────
     OLLAMA_BASE_URL: str = ""
@@ -36,17 +42,16 @@ class Settings(BaseSettings):
     OPENROUTER_MODEL: str = "openai/gpt-4o-mini"
 
     # ── Proxy Configuration ───────────────────────────────────────────────────
-    PROXY_DATACENTER_URLS: str = ""  # Comma-separated list of datacenter proxy URLs
+    PROXY_DATACENTER_URLS: str = ""
     PROXY_RESIDENTIAL_URL: str = ""
     PROXY_RESIDENTIAL_USER: str = ""
     PROXY_RESIDENTIAL_PASS: str = ""
     PROXY_ENABLED: bool = False
 
-    # Host exposed to the frontend browser (localhost on dev, domain in prod)
     NEKO_PUBLIC_HOST: str = "localhost"
 
     # ── App Version ─────────────────────────────────────────────────────────────
-    VERSION: str = "1.0.0"
+    VERSION: str = "2.0.0"
     UPLOAD_DIR: str = "./uploads"
     SCREENSHOT_DIR: str = "./screenshots"
     MAX_APPLICATIONS_PER_HOUR: int = 20
@@ -55,7 +60,6 @@ class Settings(BaseSettings):
     MIN_MATCH_SCORE_TO_SAVE: float = 0.2
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
 
-    # ── Internal service auth ─────────────────────────────────────────────────
     INTERNAL_API_KEY: str = ""
 
     # ── Supabase Storage ────────────────────────────────────────────────────
@@ -68,19 +72,11 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Ensure directories exist
 Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 Path(settings.SCREENSHOT_DIR).mkdir(parents=True, exist_ok=True)
 
 
-# ── Proxy helpers ─────────────────────────────────────────────────────────────
-
 def get_proxy(task_type: str, user_tier: str = "free") -> str | None:
-    """Return proxy URL for a task type and user tier.
-
-    Discovery tasks use cheap datacenter proxies.
-    Apply tasks use residential proxies for pro users.
-    """
     if not settings.PROXY_ENABLED:
         return None
     discovery_types = {"naukri_scrape", "linkedin_scrape", "job_discovery"}
