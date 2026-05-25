@@ -11,7 +11,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models import Profile, Resume, User
+from app.models import Profile
 from app.services.match_scorer import CandidateProfile
 
 logger = logging.getLogger(__name__)

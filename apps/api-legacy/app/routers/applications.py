@@ -13,6 +13,9 @@ from app.database import get_db
 from app.dependencies import get_current_user, get_current_user_or_service, has_platform_access, rate_limiter
 from app.models import Application, Credential, JobLead, JobListing, Profile, Resume, User
 from app.schemas import ApplicationResponse, ApplicationStatusUpdate, ApplyRequest
+from app.services.agent_service import apply_to_job_with_agent
+from app.services.credential_proxy import credential_proxy
+from app.utils.encryption import decrypt
 from pydantic import BaseModel
 from arq import create_pool
 from arq.connections import RedisSettings
@@ -38,10 +41,6 @@ def _profile_to_dict(profile: Profile | None, user: User) -> dict:
         "education": profile.education or {},
         "linkedin_url": "",
     }
-
-
-async def apply_to_job_with_agent(**kwargs):
-    yield {"event": "error", "result": "Browser agent not yet implemented"}
 
 
 _arq_pool = None
@@ -623,7 +622,6 @@ async def generate_cover_letter(
     Loads the application, job listing, and user profile, then calls the
     ADK orchestrator cover-letter task. Caches in Redis for 7 days.
     """
-    import os
     import httpx
     # Load application with job listing
     result = await db.execute(
@@ -764,9 +762,26 @@ async def stream_apply(
         if resume:
             resume_path = resume.file_path
 
-    # Decrypt password before passing to browser agent
-    from app.utils.encryption import decrypt
+    # Fetch active credential for the platform
+    cred_result = await db.execute(
+        select(Credential)
+        .where(Credential.user_id == user.id, Credential.platform == listing.platform, Credential.is_active.is_(True))
+        .order_by(Credential.updated_at.desc())
+    )
+    credential = cred_result.scalar_one_or_none()
+    if not credential:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No active credentials found for {listing.platform}",
+        )
+
+    # Decrypt password and store in secure proxy — only the token travels forward
     password_plain = decrypt(credential.encrypted_password)
+    session_token = await credential_proxy.put(
+        user_id=str(user.id),
+        platform=listing.platform,
+        creds={"username": credential.username, "password": password_plain},
+    )
 
     async def event_stream():
         try:
@@ -774,7 +789,7 @@ async def stream_apply(
                 user_id=user.id,
                 platform=listing.platform,
                 username=credential.username,
-                encrypted_password=password_plain,
+                session_token=session_token,
                 job_url=listing.apply_url or "",
                 profile=profile_dict,
                 resume_path=resume_path,

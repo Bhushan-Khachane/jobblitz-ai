@@ -1,71 +1,80 @@
-import type { Page } from "playwright";
+import { z } from "zod";
+import type { Stagehand } from "@browserbasehq/stagehand";
+import type { Page } from "@browserbasehq/stagehand/lib/v3/understudy/page";
 import type { AtsAdapter, ApplyPayload, ApplyResult } from "./index";
 
 export const workdayAdapter: AtsAdapter = {
   name: "workday",
   detect: (url: string) => url.includes("myworkdayjobs.com") || url.includes("workday.com"),
 
-  async apply(page: Page, payload: ApplyPayload): Promise<ApplyResult> {
+  async apply(stagehand: Stagehand, page: Page, payload: ApplyPayload): Promise<ApplyResult> {
     try {
-      await page.waitForSelector('button[data-uxi-element-id="next"], button:has-text("Next")', { timeout: 8000 });
+      const fields = await stagehand.observe("Find all required form fields on the current page");
 
-      await page.fill('input[aria-label*="First Name"], input[name="firstName"]', payload.firstName);
-      await page.fill('input[aria-label*="Last Name"], input[name="lastName"]', payload.lastName);
-      await page.fill('input[aria-label*="Email"], input[type="email"]', payload.email);
+      for (const field of fields) {
+        const desc = field.description?.toLowerCase() || "";
+        let value: string | undefined;
 
-      if (payload.phone) {
-        await page.fill('input[aria-label*="Phone"], input[name="phone"]', payload.phone);
+        if (desc.includes("first name")) value = payload.firstName;
+        else if (desc.includes("last name")) value = payload.lastName;
+        else if (desc.includes("email")) value = payload.email;
+        else if (desc.includes("phone")) value = payload.phone;
+        else if (desc.includes("linkedin")) value = payload.linkedin;
+        else if (desc.includes("cover")) value = payload.coverLetter;
+
+        if (value) {
+          await stagehand.act(`Fill the ${field.description} field with "${value}"`);
+        }
       }
 
-      let next = await page.$('button[data-uxi-element-id="next"], button:has-text("Next")');
-      if (next) await next.click();
-      await page.waitForTimeout(1500);
-
       if (payload.resumePath) {
-        const fileInput = await page.$('input[type="file"]');
-        if (fileInput) {
-          await fileInput.setInputFiles(payload.resumePath);
+        const fileLocator = page.locator('input[type="file"]');
+        if ((await fileLocator.count()) > 0) {
+          await stagehand.act("Upload the resume file");
+          await fileLocator.first().setInputFiles(payload.resumePath);
           await page.waitForTimeout(3000);
         }
       }
 
-      next = await page.$('button[data-uxi-element-id="next"], button:has-text("Next")');
-      if (next) await next.click();
-      await page.waitForTimeout(1500);
+      await stagehand.act("Click the Next or Continue button");
+      await page.waitForTimeout(2000);
 
       if (payload.coverLetter) {
-        const textArea = await page.$('textarea[aria-label*="Cover"], textarea[name="coverLetter"]');
-        if (textArea) await textArea.fill(payload.coverLetter);
-      }
-
-      if (payload.answers) {
-        for (const [question, answer] of Object.entries(payload.answers)) {
-          const label = await page.$(`label:has-text("${question}")`);
-          if (label) {
-            const parentHandle = await label.evaluateHandle((el) => el.parentElement);
-            const parent = await parentHandle.asElement();
-            if (parent) {
-              const input = await parent.$('input, textarea, select');
-              if (input) await input.fill(answer);
-            }
+        const coverFields = await stagehand.observe("Find cover letter or additional info fields").catch(() => []);
+        for (const f of coverFields) {
+          if (f.description?.toLowerCase().includes("cover")) {
+            await stagehand.act(`Fill the ${f.description} field with "${payload.coverLetter}"`);
           }
         }
       }
 
-      const submit = await page.$('button[data-uxi-element-id="submit"], button:has-text("Submit")');
-      if (submit) {
-        await Promise.all([
-          page.waitForNavigation({ waitUntil: "networkidle", timeout: 20000 }).catch(() => null),
-          submit.click(),
-        ]);
-      }
+      await stagehand.act("Click the Submit Application button");
+      await page.waitForTimeout(3000);
 
-      const bodyText = await page.$eval("body", (el) => el.innerText).catch(() => "");
-      const success = /thank you|submitted|application received/i.test(bodyText);
+      const extracted = await stagehand.extract(
+        "Extract any confirmation message or application ID",
+        z.object({
+          confirmed: z.boolean(),
+          message: z.string(),
+        })
+      );
 
-      return { success, confirmationId: success ? await page.url() : undefined, step: "submitted" };
+      const ts = Date.now();
+      const screenshotPath = `/tmp/screenshots/workday_${ts}.png`;
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+
+      return {
+        success: extracted.confirmed,
+        confirmationId: extracted.message || undefined,
+        screenshotPath,
+        step: "submitted",
+      };
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err), step: "apply" };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        step: "apply",
+      };
     }
   },
 };

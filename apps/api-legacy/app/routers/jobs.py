@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
 
 from arq import create_pool
 from arq.connections import RedisSettings
@@ -25,11 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import JobRecommendation, Profile, User
-from app.schemas import StandardRunResponse
-from app.services.match_scorer import compute_match_score, priority_tier, CandidateProfile, JobListing
+from app.models import JobRecommendation, User
 from app.services.profile_parser import parse_candidate_profile
-from app.services.salary_estimator import estimate_salary
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 

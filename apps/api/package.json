@@ -19,6 +19,7 @@
     "@jobblitz/auth": "workspace:*",
     "@jobblitz/security": "workspace:*",
     "@jobblitz/research": "workspace:*",
+    "@jobblitz/memory": "workspace:*",
     "hono": "^4.7.0",
     "zod": "^3.24.1",
     "bullmq": "^5.41.0",
@@ -26,6 +27,8 @@
     "ioredis": "^5.5.0"
   },
   "devDependencies": {
+    "@jobblitz/agents": "workspace:*",
+    "@jobblitz/browser": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^5.8.3",
     "vitest": "^3.1.2"

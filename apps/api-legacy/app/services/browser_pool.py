@@ -200,7 +200,8 @@ class BrowserPool:
         ctx = await self.acquire_for_user(user_id, task_type, user_tier)
 
         # Load portal session cookies from browser-worker state file
-        import json, os
+        import json
+        import os
         from sqlalchemy import select
         from app.models import BrowserSession
         from app.database import engine
@@ -214,7 +215,7 @@ class BrowserPool:
                         BrowserSession.user_id == user_id,
                         BrowserSession.portal == platform,
                         BrowserSession.status == "active",
-                        BrowserSession.verified == True,
+                        BrowserSession.verified.is_(True),
                     )
                 )
                 session = result.scalar_one_or_none()

@@ -1,6 +1,6 @@
 import { sessionManager } from "./session";
 import { artifacts } from "./artifacts";
-import { detectAts, type ApplyPayload, classifyError } from "@jobblitz/browser";
+import { detectAts, type ApplyPayload, classifyError, createStagehandSession } from "@jobblitz/browser";
 
 export interface NavigatePayload {
   sessionId: string;
@@ -115,25 +115,36 @@ export async function act(payload: ActPayload): Promise<BrowserResult> {
 }
 
 export async function applyWithAdapter(payload: ApplyPayloadExtended): Promise<BrowserResult> {
-  const session = sessionManager.getSession(payload.sessionId);
-  if (!session) return { success: false, error: "Session not found" };
-
   const adapter = detectAts(payload.applyUrl);
   if (!adapter) {
     return { success: false, error: "No ATS adapter found for this URL", step: "detect" };
   }
 
+  let session;
   try {
-    await session.page.goto(payload.applyUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
-    const result = await adapter.apply(session.page, payload);
-    const screenshot = await artifacts.screenshot(session.page, `apply-${session.id}`);
+    session = await createStagehandSession({
+      headless: process.env.HEADLESS !== "false",
+    });
+
+    await session.page.goto(payload.applyUrl, { waitUntil: "domcontentloaded", timeoutMs: 20000 });
+    await session.page.waitForTimeout(2000);
+
+    const result = await adapter.apply(session.stagehand, session.page, payload);
+
+    let screenshotPath: string | undefined;
+    if (result.screenshotPath) {
+      screenshotPath = result.screenshotPath;
+    } else {
+      const ts = Date.now();
+      screenshotPath = `/tmp/screenshots/apply_${ts}.png`;
+      await session.page.screenshot({ path: screenshotPath, fullPage: true });
+    }
 
     if (result.success) {
       return {
         success: true,
-        sessionId: session.id,
         url: session.page.url(),
-        screenshotPath: screenshot.path,
+        screenshotPath,
         step: result.step,
       };
     }
@@ -142,7 +153,7 @@ export async function applyWithAdapter(payload: ApplyPayloadExtended): Promise<B
     return {
       success: false,
       error: result.error,
-      screenshotPath: screenshot.path,
+      screenshotPath,
       category: analysis.category,
       suggestion: analysis.suggestion,
       step: result.step,
@@ -156,5 +167,7 @@ export async function applyWithAdapter(payload: ApplyPayloadExtended): Promise<B
       suggestion: analysis.suggestion,
       step: "apply",
     };
+  } finally {
+    if (session) await session.cleanup().catch(() => null);
   }
 }

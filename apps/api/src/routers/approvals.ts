@@ -3,6 +3,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { db } from "../db";
 import { schema } from "@jobblitz/db";
 import { authMiddleware } from "../middleware/auth";
+import { enqueueApplicationJob } from "../queue";
 
 const { approvals, jobs } = schema;
 
@@ -59,6 +60,16 @@ approvalsRouter.post("/:id/approve", async (c) => {
     .where(eq(approvals.id, id))
     .returning();
 
+  // If this approval is linked to an application, resume the graph
+  if (existing.applicationId) {
+    await enqueueApplicationJob({
+      type: "resume",
+      userId: user.id,
+      jobId: existing.jobId,
+      applicationId: existing.applicationId,
+    });
+  }
+
   return c.json(updated[0]);
 });
 
@@ -78,6 +89,14 @@ approvalsRouter.post("/:id/reject", async (c) => {
     .set({ status: "rejected", reviewedAt: new Date(), updatedAt: new Date() })
     .where(eq(approvals.id, id))
     .returning();
+
+  // Update linked application status if present
+  if (existing.applicationId) {
+    await db
+      .update(schema.applications)
+      .set({ status: "skipped", updatedAt: new Date() })
+      .where(eq(schema.applications.id, existing.applicationId));
+  }
 
   return c.json(updated[0]);
 });

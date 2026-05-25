@@ -5,8 +5,11 @@ import { db } from "../db";
 import { schema } from "@jobblitz/db";
 import { authMiddleware } from "../middleware/auth";
 import { computeMatchScore } from "@jobblitz/core";
+import { createEmbeddingClient, upsertJobEmbedding, findSimilarJobs } from "@jobblitz/memory";
 
 const { jobs, profiles } = schema;
+
+const embedder = createEmbeddingClient();
 
 const jobsRouter = new Hono();
 
@@ -59,6 +62,23 @@ jobsRouter.get("/", async (c) => {
   return c.json(result);
 });
 
+jobsRouter.get("/semantic", async (c) => {
+  const user = c.get("user");
+  const query = c.req.query("q");
+  const limit = Math.min(Number(c.req.query("limit") || "10"), 50);
+
+  if (!query) {
+    return c.json({ error: "Query parameter 'q' is required" }, 400);
+  }
+
+  const results = await findSimilarJobs(db, embedder, query, {
+    userId: user.id,
+    limit,
+  });
+
+  return c.json(results);
+});
+
 jobsRouter.post("/", async (c) => {
   const user = c.get("user");
   const body = await c.req.json();
@@ -72,7 +92,17 @@ jobsRouter.post("/", async (c) => {
     .values({ ...parsed.data, userId: user.id })
     .returning();
 
-  return c.json(inserted[0], 201);
+  const job = inserted[0];
+  if (!job) {
+    return c.json({ error: "Failed to create job" }, 500);
+  }
+
+  // Embed the job asynchronously (best-effort)
+  upsertJobEmbedding(db, embedder, job).catch((err: unknown) => {
+    console.error("[jobs] embedding failed:", err instanceof Error ? err.message : String(err));
+  });
+
+  return c.json(job, 201);
 });
 
 jobsRouter.get("/:id", async (c) => {
@@ -92,7 +122,16 @@ jobsRouter.patch("/:id", async (c) => {
   if (!existing) return c.json({ error: "Not found" }, 404);
 
   const updated = await db.update(jobs).set({ ...body, updatedAt: new Date() }).where(eq(jobs.id, id)).returning();
-  return c.json(updated[0]);
+  const job = updated[0];
+
+  // Re-embed on update if the content changed
+  if (job) {
+    upsertJobEmbedding(db, embedder, job).catch((err: unknown) => {
+      console.error("[jobs] re-embedding failed:", err instanceof Error ? err.message : String(err));
+    });
+  }
+
+  return c.json(job);
 });
 
 jobsRouter.delete("/:id", async (c) => {
@@ -121,6 +160,17 @@ jobsRouter.post("/:id/score", async (c) => {
   }).where(eq(jobs.id, id));
 
   return c.json(score);
+});
+
+jobsRouter.post("/:id/embed", async (c) => {
+  const user = c.get("user");
+  const id = c.req.param("id");
+
+  const [job] = await db.select().from(jobs).where(and(eq(jobs.id, id), eq(jobs.userId, user.id))).limit(1);
+  if (!job) return c.json({ error: "Not found" }, 404);
+
+  await upsertJobEmbedding(db, embedder, job);
+  return c.json({ success: true, embedded: true });
 });
 
 export default jobsRouter;

@@ -220,7 +220,7 @@ async def has_platform_access(user_id: uuid.UUID, platform: str, db: AsyncSessio
             BrowserSession.user_id == user_id,
             BrowserSession.portal == platform,
             BrowserSession.status == "active",
-            BrowserSession.verified == True,
+            BrowserSession.verified.is_(True),
         )
     )
     return session_result.scalar_one_or_none() is not None

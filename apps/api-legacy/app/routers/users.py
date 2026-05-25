@@ -113,7 +113,7 @@ async def generate_ai_summary(
     # Fetch default resume text if available
     resume_text = None
     resume_result = await db.execute(
-        select(Resume).where(Resume.user_id == user.id, Resume.is_default == True)
+        select(Resume).where(Resume.user_id == user.id, Resume.is_default.is_(True))
     )
     default_resume = resume_result.scalar_one_or_none()
     if default_resume and default_resume.parsed_text:

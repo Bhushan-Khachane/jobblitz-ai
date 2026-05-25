@@ -3,6 +3,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { db } from "../db";
 import { schema } from "@jobblitz/db";
 import { authMiddleware } from "../middleware/auth";
+import { enqueueApplicationJob } from "../queue";
 
 const { applications, jobs } = schema;
 
@@ -66,7 +67,22 @@ applicationsRouter.post("/", async (c) => {
     })
     .returning();
 
-  return c.json(inserted[0], 201);
+  const application = inserted[0];
+  if (!application) {
+    return c.json({ error: "Failed to create application" }, 500);
+  }
+
+  // Enqueue the application job
+  await enqueueApplicationJob({
+    type: "apply",
+    userId: user.id,
+    jobId,
+    applicationId: application.id,
+    resumeId,
+    coverLetterId,
+  });
+
+  return c.json(application, 201);
 });
 
 applicationsRouter.get("/:id", async (c) => {
@@ -102,6 +118,52 @@ applicationsRouter.delete("/:id", async (c) => {
   const id = c.req.param("id");
   await db.delete(applications).where(and(eq(applications.id, id), eq(applications.userId, user.id)));
   return c.json({ success: true });
+});
+
+applicationsRouter.post("/:id/apply", async (c) => {
+  const user = c.get("user");
+  const id = c.req.param("id");
+
+  const [app] = await db
+    .select()
+    .from(applications)
+    .where(and(eq(applications.id, id), eq(applications.userId, user.id)))
+    .limit(1);
+  if (!app) return c.json({ error: "Not found" }, 404);
+
+  await enqueueApplicationJob({
+    type: "apply",
+    userId: user.id,
+    jobId: app.jobId,
+    applicationId: app.id,
+    resumeId: app.resumeId ?? undefined,
+    coverLetterId: app.coverLetterId ?? undefined,
+  });
+
+  return c.json({ success: true, enqueued: true });
+});
+
+applicationsRouter.post("/:id/resume", async (c) => {
+  const user = c.get("user");
+  const id = c.req.param("id");
+
+  const [app] = await db
+    .select()
+    .from(applications)
+    .where(and(eq(applications.id, id), eq(applications.userId, user.id)))
+    .limit(1);
+  if (!app) return c.json({ error: "Not found" }, 404);
+
+  await enqueueApplicationJob({
+    type: "resume",
+    userId: user.id,
+    jobId: app.jobId,
+    applicationId: app.id,
+    resumeId: app.resumeId ?? undefined,
+    coverLetterId: app.coverLetterId ?? undefined,
+  });
+
+  return c.json({ success: true, resumed: true });
 });
 
 export default applicationsRouter;

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
 from app.database import engine
-from app.models import Application, Credential, DeadLetterLog, JobListing, JobSearch, Profile, Resume, UsageLog, User
+from app.models import Application, DeadLetterLog, JobListing, JobSearch, Profile, Resume, UsageLog, User
 from app.services.matching_service import match_job_to_resume_detailed
 from app.services.scraper_service import scrape_linkedin_jobs, scrape_naukri_jobs
 
@@ -656,7 +657,7 @@ async def run_discovery_scoring(ctx: dict, user_id: str | None = None) -> dict:
     5. Deduplicate by user_id + external_job_id
     6. Save to job_recommendations
     """
-    from app.services.match_scorer import CandidateProfile, JobListing as ScorerJob, compute_match_score, priority_tier, enrich_job_with_llm
+    from app.services.match_scorer import JobListing as ScorerJob, compute_match_score, priority_tier, enrich_job_with_llm
     from app.services.profile_parser import parse_candidate_profile
     from app.services.salary_estimator import estimate_salary
     from app.models import JobRecommendation
@@ -676,7 +677,7 @@ async def run_discovery_scoring(ctx: dict, user_id: str | None = None) -> dict:
             JobSearch.experience_level,
             JobSearch.remote_only,
             JobSearch.platform,
-        ).where(JobSearch.is_active == True)
+        ).where(JobSearch.is_active.is_(True))
         if user_id:
             search_query = search_query.where(JobSearch.user_id == uuid.UUID(user_id))
         result = await db.execute(search_query)

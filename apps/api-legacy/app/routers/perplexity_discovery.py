@@ -68,4 +68,6 @@ async def salary_intel(
 ) -> dict[str, Any]:
     return await perplexity_service.get_salary_intel(
         role=role,
-        loca
+        location=location,
+        years_experience=years_experience,
+    )

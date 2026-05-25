@@ -12,11 +12,18 @@
     "clean": "rm -rf dist .tsbuildinfo"
   },
   "dependencies": {
-    "@jobblitz/types": "workspace:*",
-    "@jobblitz/db": "workspace:*",
+    "@jobblitz/browser": "workspace:*",
     "@jobblitz/core": "workspace:*",
+    "@jobblitz/db": "workspace:*",
     "@jobblitz/research": "workspace:*",
+    "@jobblitz/types": "workspace:*",
+    "@langchain/core": "^1.1.48",
+    "@langchain/langgraph": "^1.3.2",
+    "@langchain/langgraph-checkpoint-postgres": "^1.0.1",
+    "@langchain/openai": "^1.4.7",
     "drizzle-orm": "^0.40.0",
+    "ioredis": "^5.5.0",
+    "playwright": "^1.51.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

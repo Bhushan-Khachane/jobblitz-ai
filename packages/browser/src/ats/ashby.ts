@@ -1,44 +1,66 @@
-import type { Page } from "playwright";
+import { z } from "zod";
+import type { Stagehand } from "@browserbasehq/stagehand";
+import type { Page } from "@browserbasehq/stagehand/lib/v3/understudy/page";
 import type { AtsAdapter, ApplyPayload, ApplyResult } from "./index";
 
 export const ashbyAdapter: AtsAdapter = {
   name: "ashby",
   detect: (url: string) => url.includes("jobs.ashbyhq.com"),
 
-  async apply(page: Page, payload: ApplyPayload): Promise<ApplyResult> {
+  async apply(stagehand: Stagehand, page: Page, payload: ApplyPayload): Promise<ApplyResult> {
     try {
-      await page.waitForSelector('input[name="firstName"], #firstName', { timeout: 8000 });
+      const fields = await stagehand.observe("Find all required form fields on this job application form");
 
-      await page.fill('input[name="firstName"], #firstName', payload.firstName);
-      await page.fill('input[name="lastName"], #lastName', payload.lastName);
-      await page.fill('input[name="email"], #email, [type="email"]', payload.email);
+      for (const field of fields) {
+        const desc = field.description?.toLowerCase() || "";
+        let value: string | undefined;
 
-      if (payload.phone) {
-        await page.fill('input[name="phone"], #phone', payload.phone);
+        if (desc.includes("first name") || desc.includes("firstname")) value = payload.firstName;
+        else if (desc.includes("last name") || desc.includes("lastname") || desc.includes("surname")) value = payload.lastName;
+        else if (desc.includes("email")) value = payload.email;
+        else if (desc.includes("phone")) value = payload.phone;
+
+        if (value) {
+          await stagehand.act(`Fill the ${field.description} field with "${value}"`);
+        }
       }
 
       if (payload.resumePath) {
-        const fileInput = await page.$('input[type="file"]');
-        if (fileInput) {
-          await fileInput.setInputFiles(payload.resumePath);
+        const fileLocator = page.locator('input[type="file"]');
+        if ((await fileLocator.count()) > 0) {
+          await stagehand.act("Upload the resume file");
+          await fileLocator.first().setInputFiles(payload.resumePath);
           await page.waitForTimeout(2000);
         }
       }
 
-      const submit = await page.$('button[type="submit"], [data-testid="submit-button"]');
-      if (submit) {
-        await Promise.all([
-          page.waitForNavigation({ waitUntil: "networkidle", timeout: 15000 }).catch(() => null),
-          submit.click(),
-        ]);
-      }
+      await stagehand.act("Click the Submit Application button");
+      await page.waitForTimeout(3000);
 
-      const bodyText = await page.$eval("body", (el) => el.innerText).catch(() => "");
-      const success = /thank you|submitted|received/i.test(bodyText);
+      const extracted = await stagehand.extract(
+        "Extract any confirmation message or application ID",
+        z.object({
+          confirmed: z.boolean(),
+          message: z.string(),
+        })
+      );
 
-      return { success, confirmationId: success ? await page.url() : undefined, step: "submitted" };
+      const ts = Date.now();
+      const screenshotPath = `/tmp/screenshots/ashby_${ts}.png`;
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+
+      return {
+        success: extracted.confirmed,
+        confirmationId: extracted.message || undefined,
+        screenshotPath,
+        step: "submitted",
+      };
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err), step: "apply" };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        step: "apply",
+      };
     }
   },
 };

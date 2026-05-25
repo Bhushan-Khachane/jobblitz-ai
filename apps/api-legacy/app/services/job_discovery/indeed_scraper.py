@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import random
-import re
-from datetime import datetime
 from typing import List
 
 from app.services.job_discovery.base_scraper import BaseJobScraper, RawJobListing, JobDescription

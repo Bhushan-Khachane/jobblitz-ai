@@ -143,7 +143,7 @@ async def test_browser_pool_acquire_for_user_uses_proxy():
             browser_pool._initialized = True
             browser_pool._playwright = AsyncMock()
 
-            ctx = await browser_pool.acquire_for_user("user-789", task_type="apply")
+            await browser_pool.acquire_for_user("user-789", task_type="apply")
 
             mock_get_proxy.assert_called_once_with("user-789")
             mock_browser.new_context.assert_awaited_once()

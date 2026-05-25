@@ -15,7 +15,6 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import List
 
 import numpy as np
 
@@ -106,7 +105,7 @@ class JobListing:
     location: str | None
     job_type: str | None
     description: str
-    experience_required: str | ""
+    experience_required: str | None
     salary_raw: str | None
     apply_link: str
     source_portal: str

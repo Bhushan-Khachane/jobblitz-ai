@@ -10,9 +10,8 @@ Capabilities:
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncGenerator
+from typing import Any
 
-from app.config import settings
 from app.services.perplexity_service import perplexity_service
 from app.services.llm_client import LLMClient
 

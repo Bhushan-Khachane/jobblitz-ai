@@ -12,6 +12,9 @@ export class StateGraph<S extends object> {
 
   addEdge(from: string, to: string): this {
     this.edges.set(from, to);
+    if (from === START) {
+      this.entryPoint = to;
+    }
     return this;
   }
 
@@ -24,8 +27,10 @@ export class StateGraph<S extends object> {
     let entry: string | undefined = this.entryPoint;
     if (!entry) {
       const incoming = new Set<string>();
-      for (const [, to] of this.edges) {
-        incoming.add(to);
+      for (const [from, to] of this.edges) {
+        if (from !== START && to !== END) {
+          incoming.add(to);
+        }
       }
       const candidates = Array.from(this.nodes.keys()).filter((n) => !incoming.has(n));
       if (candidates.length === 1) {
@@ -50,6 +55,7 @@ export class CompiledGraph<S extends object> {
     let current: string | undefined = this.entryPoint;
 
     while (current) {
+      if (current === END) break;
       const action = this.nodes.get(current);
       if (!action) throw new Error(`Node not found: ${current}`);
       state = await action(state);
