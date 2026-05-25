@@ -6,6 +6,7 @@ import resumes from "./resumes";
 import research from "./research";
 import users from "./users";
 import dashboard from "./dashboard";
+import memory from "./memory";
 
 export const routers = {
   health,
@@ -16,6 +17,7 @@ export const routers = {
   research,
   users,
   dashboard,
+  memory,
 };
 
 export type AppRouters = typeof routers;

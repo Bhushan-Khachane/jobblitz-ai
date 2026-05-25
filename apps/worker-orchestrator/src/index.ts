@@ -1,4 +1,4 @@
-import { Worker } from "bullmq";
+import { Worker, Queue } from "bullmq";
 import Redis from "ioredis";
 import { eq, and } from "drizzle-orm";
 import { createDatabaseClient, schema } from "@jobblitz/db";
@@ -10,7 +10,9 @@ const secrets = validateSecrets(process.env);
 const db = createDatabaseClient(secrets.DATABASE_URL);
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+
 const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
+const redisPub = new Redis(REDIS_URL);
 
 interface ApplicationJobData {
   type: "apply" | "resume";
@@ -87,11 +89,57 @@ async function buildPayload(data: ApplicationJobData) {
   };
 }
 
+async function writeCheckpoint(
+  applicationId: string,
+  userId: string,
+  graphState: Record<string, unknown>,
+  status: string
+) {
+  const expiresAt = status === "awaiting_approval"
+    ? new Date(Date.now() + 24 * 60 * 60 * 1000)
+    : null;
+
+  await db.insert(schema.orchestrationCheckpoints).values({
+    applicationId,
+    userId,
+    graphState,
+    status,
+    expiresAt,
+  } as never);
+}
+
+async function updateCheckpointStatus(applicationId: string, status: string) {
+  await db
+    .update(schema.orchestrationCheckpoints)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(schema.orchestrationCheckpoints.applicationId, applicationId));
+}
+
+async function publishNotification(userId: string, event: Record<string, unknown>) {
+  await redisPub.publish(`jobblitz:notifications:${userId}`, JSON.stringify(event));
+}
+
+async function publishApprovalEvent(userId: string, applicationId: string, jobId: string) {
+  await redisPub.publish(
+    "jobblitz:approvals",
+    JSON.stringify({
+      type: "awaiting_approval",
+      userId,
+      applicationId,
+      jobId,
+      timestamp: new Date().toISOString(),
+    })
+  );
+}
+
 async function run() {
   const graph = await createApplicationGraph({ db });
 
+  // Dedicated orchestration queue
+  const orchestrationQueue = new Queue("orchestration-jobs", { connection });
+
   const worker = new Worker<ApplicationJobData>(
-    "jobblitz-applications",
+    "orchestration-jobs",
     async (job) => {
       const data = job.data;
       console.log(`[worker] ${data.type} job ${job.id} application=${data.applicationId}`);
@@ -115,9 +163,33 @@ async function run() {
 
         try {
           await graph.invoke(initialState, { configurable: { thread_id: threadId } });
+
+          // Graph completed successfully
+          await db
+            .update(schema.applications)
+            .set({
+              status: "submitted",
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.applications.id, data.applicationId));
+
+          await publishNotification(data.userId, {
+            type: "application_completed",
+            applicationId: data.applicationId,
+            jobId: data.jobId,
+            timestamp: new Date().toISOString(),
+          });
         } catch (err) {
           if (isGraphInterrupt(err)) {
             console.log(`[worker] interrupt awaiting approval for application ${data.applicationId}`);
+
+            await writeCheckpoint(
+              data.applicationId,
+              data.userId,
+              { userId: data.userId, jobId: data.jobId, applicationId: data.applicationId, jobUrl, payload },
+              "awaiting_approval"
+            );
+
             await db
               .update(schema.applications)
               .set({
@@ -126,8 +198,33 @@ async function run() {
                 updatedAt: new Date(),
               })
               .where(eq(schema.applications.id, data.applicationId));
+
+            await publishApprovalEvent(data.userId, data.applicationId, data.jobId);
             return;
           }
+
+          // Real failure after retries
+          console.error(`[worker] fatal error for application ${data.applicationId}:`, err);
+
+          await db
+            .update(schema.applications)
+            .set({
+              status: "failed",
+              errorMessage: err instanceof Error ? err.message : String(err),
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.applications.id, data.applicationId));
+
+          await updateCheckpointStatus(data.applicationId, "failed");
+
+          await publishNotification(data.userId, {
+            type: "application_failed",
+            applicationId: data.applicationId,
+            jobId: data.jobId,
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          });
+
           throw err;
         }
       } else if (data.type === "resume") {
@@ -136,16 +233,51 @@ async function run() {
             new Command({ resume: { approved: true } }),
             { configurable: { thread_id: threadId } }
           );
+
+          await db
+            .update(schema.applications)
+            .set({
+              status: "submitted",
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.applications.id, data.applicationId));
+
+          await publishNotification(data.userId, {
+            type: "application_completed",
+            applicationId: data.applicationId,
+            jobId: data.jobId,
+            timestamp: new Date().toISOString(),
+          });
         } catch (err) {
           if (isGraphInterrupt(err)) {
             console.log(`[worker] interrupt on resume for application ${data.applicationId}`);
             return;
           }
+
+          await db
+            .update(schema.applications)
+            .set({
+              status: "failed",
+              errorMessage: err instanceof Error ? err.message : String(err),
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.applications.id, data.applicationId));
+
+          await updateCheckpointStatus(data.applicationId, "failed");
+
+          await publishNotification(data.userId, {
+            type: "application_failed",
+            applicationId: data.applicationId,
+            jobId: data.jobId,
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          });
+
           throw err;
         }
       }
     },
-    { connection, concurrency: 2 }
+    { connection, concurrency: 3 }
   );
 
   worker.on("completed", (job) => {
@@ -156,7 +288,21 @@ async function run() {
     console.error(`[worker] failed job ${job?.id}:`, err instanceof Error ? err.message : String(err));
   });
 
-  console.log("[worker-orchestrator] BullMQ worker started on queue 'jobblitz:applications'");
+  console.log("[worker-orchestrator] BullMQ worker started on queue 'orchestration-jobs'");
+
+  // Graceful shutdown
+  async function shutdown(signal: string) {
+    console.log(`[worker-orchestrator] received ${signal}, shutting down gracefully...`);
+    await worker.close();
+    await orchestrationQueue.close();
+    await redisPub.quit();
+    await connection.quit();
+    console.log("[worker-orchestrator] shutdown complete");
+    process.exit(0);
+  }
+
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 run().catch((err) => {

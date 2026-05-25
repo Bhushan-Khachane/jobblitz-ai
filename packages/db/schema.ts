@@ -138,6 +138,20 @@ export const resumes = pgTable("resumes", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const tailoredResumes = pgTable("tailored_resumes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  jobId: uuid("job_id")
+    .notNull()
+    .references(() => jobs.id, { onDelete: "cascade" }),
+  resumeId: uuid("resume_id").references(() => resumes.id, { onDelete: "set null" }),
+  content: text("content").notNull(),
+  modelUsed: varchar("model_used", { length: 100 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const coverLetters = pgTable("cover_letters", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
@@ -522,6 +536,39 @@ export const embeddings = pgTable(
   ]
 );
 
+export const jobEmbeddings = pgTable(
+  "job_embeddings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    embedding: vector("embedding", { dimensions: 1536 }).notNull(),
+    embeddedAt: timestamp("embedded_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("ix_job_embeddings_job").on(table.jobId),
+    index("ix_job_embeddings_vector").using("hnsw", table.embedding),
+  ]
+);
+
+export const userSkillEmbeddings = pgTable(
+  "user_skill_embeddings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    skillText: text("skill_text").notNull(),
+    embedding: vector("embedding", { dimensions: 1536 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("ix_user_skill_embeddings_user").on(table.userId),
+    index("ix_user_skill_embeddings_vector").using("hnsw", table.embedding),
+  ]
+);
+
 export const browserSessions = pgTable(
   "browser_sessions",
   {
@@ -542,4 +589,27 @@ export const browserSessions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index("ix_browser_sessions_user_portal").on(table.userId, table.portal)]
+);
+
+export const orchestrationCheckpoints = pgTable(
+  "orchestration_checkpoints",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    graphState: jsonb("graph_state").notNull(),
+    status: varchar("status", { length: 50 }).default("running").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("ix_checkpoints_app").on(table.applicationId),
+    index("ix_checkpoints_user_status").on(table.userId, table.status),
+    index("ix_checkpoints_expires").on(table.expiresAt),
+  ]
 );

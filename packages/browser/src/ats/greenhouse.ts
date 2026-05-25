@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Stagehand } from "@browserbasehq/stagehand";
-import type { Page } from "@browserbasehq/stagehand/lib/v3/understudy/page";
+import type { Page } from "playwright";
 import type { AtsAdapter, ApplyPayload, ApplyResult } from "./index";
 
 export const greenhouseAdapter: AtsAdapter = {

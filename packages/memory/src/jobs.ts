@@ -3,7 +3,7 @@ import type { DatabaseClient } from "@jobblitz/db";
 import { schema } from "@jobblitz/db";
 import type { EmbeddingClient } from "./embeddings";
 
-const { embeddings, jobs } = schema;
+const { embeddings, jobEmbeddings, jobs } = schema;
 
 function buildJobText(job: typeof jobs.$inferSelect): string {
   const parts = [
@@ -58,6 +58,16 @@ export async function upsertJobEmbedding(
       platform: job.platform,
       location: job.location,
     } as Record<string, unknown>,
+  });
+
+  // Also populate the dedicated job_embeddings table for hybrid search
+  await db
+    .delete(jobEmbeddings)
+    .where(eq(jobEmbeddings.jobId, job.id));
+
+  await db.insert(jobEmbeddings).values({
+    jobId: job.id,
+    embedding: vector,
   });
 }
 

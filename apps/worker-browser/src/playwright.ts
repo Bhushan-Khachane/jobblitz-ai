@@ -19,6 +19,7 @@ export interface ActPayload {
 export interface ApplyPayloadExtended extends ApplyPayload {
   sessionId: string;
   applyUrl: string;
+  applicationId?: string;
 }
 
 export interface BrowserResult {
@@ -114,6 +115,17 @@ export async function act(payload: ActPayload): Promise<BrowserResult> {
   }
 }
 
+const ADAPTER_TIMEOUT_MS = 45000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 export async function applyWithAdapter(payload: ApplyPayloadExtended): Promise<BrowserResult> {
   const adapter = detectAts(payload.applyUrl);
   if (!adapter) {
@@ -122,21 +134,32 @@ export async function applyWithAdapter(payload: ApplyPayloadExtended): Promise<B
 
   let session;
   try {
-    session = await createStagehandSession({
-      headless: process.env.HEADLESS !== "false",
-    });
+    // Use existing session if sessionId provided, otherwise create a new Stagehand session
+    const existingSession = payload.sessionId ? sessionManager.getSession(payload.sessionId) : undefined;
+    if (existingSession) {
+      session = { stagehand: existingSession.stagehand, page: existingSession.page, cleanup: async () => {} };
+    } else {
+      session = await createStagehandSession({
+        headless: process.env.HEADLESS !== "false",
+      });
+    }
 
     await session.page.goto(payload.applyUrl, { waitUntil: "domcontentloaded", timeoutMs: 20000 });
     await session.page.waitForTimeout(2000);
 
-    const result = await adapter.apply(session.stagehand, session.page, payload);
+    const result = await withTimeout(
+      adapter.apply(session.stagehand, session.page, payload),
+      ADAPTER_TIMEOUT_MS,
+      `Adapter ${adapter.name}`
+    );
 
     let screenshotPath: string | undefined;
     if (result.screenshotPath) {
       screenshotPath = result.screenshotPath;
     } else {
       const ts = Date.now();
-      screenshotPath = `/tmp/screenshots/apply_${ts}.png`;
+      const prefix = payload.applicationId || `apply_${ts}`;
+      screenshotPath = `/tmp/screenshots/${prefix}.png`;
       await session.page.screenshot({ path: screenshotPath, fullPage: true });
     }
 

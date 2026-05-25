@@ -1,6 +1,6 @@
 import { Annotation, END, START, StateGraph, interrupt } from "@langchain/langgraph";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
-import { detectAts, type ApplyPayload, createStagehandSession } from "@jobblitz/browser";
+import { detectAts, type ApplyPayload } from "@jobblitz/browser";
 import { createDatabaseClient, schema } from "@jobblitz/db";
 import type { DatabaseClient } from "@jobblitz/db";
 import { eq } from "drizzle-orm";
@@ -36,6 +36,8 @@ type ApplicationState = typeof ApplicationStateAnnotation.State;
 // ── Config ──────────────────────────────────────────────────────────────────
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const BROWSER_WORKER_URL = process.env.BROWSER_WORKER_URL || "http://localhost:8002";
+const LEGACY_API_URL = process.env.LEGACY_API_URL || "http://localhost:8004";
 
 function getRedis(): Redis {
   if (!(globalThis as Record<string, unknown>)._jobblitzRedis) {
@@ -117,43 +119,39 @@ export async function createApplicationGraph(config?: ApplicationGraphConfig) {
   async function executeApplicationNode(
     state: ApplicationState
   ): Promise<Partial<ApplicationState>> {
-    const adapter = state.jobUrl ? detectAts(state.jobUrl) : undefined;
-    if (!adapter || !state.payload) {
+    if (!state.jobUrl || !state.payload) {
       return {
-        browserResult: { success: false, error: "No ATS adapter or payload available" },
+        browserResult: { success: false, error: "No jobUrl or payload available" },
         step: "apply",
       };
     }
 
-    let screenshotPath: string | undefined;
-    let session;
-
     try {
-      session = await createStagehandSession({
-        headless: process.env.HEADLESS !== "false",
+      const res = await fetch(`${BROWSER_WORKER_URL}/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          applyUrl: state.jobUrl,
+          ...state.payload,
+        }),
       });
 
-      await session.page.goto(state.jobUrl!, { waitUntil: "domcontentloaded", timeoutMs: 30000 });
-      await session.page.waitForTimeout(2000);
-
-      const result = await adapter.apply(session.stagehand, session.page, state.payload);
-
-      if (result.screenshotPath) {
-        screenshotPath = result.screenshotPath;
-      } else if (result.success) {
-        const ts = Date.now();
-        screenshotPath = `/tmp/screenshots/${state.userId}_${state.jobId}_${ts}.png`;
-        await session.page.screenshot({ path: screenshotPath, fullPage: true });
-      }
+      const result = (await res.json()) as {
+        success: boolean;
+        confirmationId?: string;
+        screenshotPath?: string;
+        error?: string;
+        step?: string;
+      };
 
       return {
         browserResult: {
           success: result.success,
           confirmationId: result.confirmationId,
-          screenshot: screenshotPath,
+          screenshot: result.screenshotPath,
           error: result.error,
         },
-        step: "apply",
+        step: result.step || "apply",
       };
     } catch (err) {
       return {
@@ -163,8 +161,6 @@ export async function createApplicationGraph(config?: ApplicationGraphConfig) {
         },
         step: "apply",
       };
-    } finally {
-      if (session) await session.cleanup().catch(() => null);
     }
   }
 
@@ -197,11 +193,13 @@ export async function createApplicationGraph(config?: ApplicationGraphConfig) {
     if (!state.applicationId) return { step: "completed" };
 
     const success = state.browserResult?.success ?? false;
+    const appStatus = success ? "submitted" : "failed";
+
     try {
       await db
         .update(schema.applications)
         .set({
-          status: success ? "submitted" : "failed",
+          status: appStatus,
           errorMessage: state.browserResult?.error || null,
           screenshotPath: state.browserResult?.screenshot || null,
           appliedAt: success ? new Date() : null,
@@ -211,6 +209,20 @@ export async function createApplicationGraph(config?: ApplicationGraphConfig) {
     } catch {
       // Best-effort persistence; notification already sent
     }
+
+    // Sync status to legacy API if available
+    try {
+      if (LEGACY_API_URL) {
+        await fetch(`${LEGACY_API_URL}/applications/${state.applicationId}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: appStatus }),
+        });
+      }
+    } catch {
+      // Best-effort legacy sync
+    }
+
     return { step: "completed" };
   }
 

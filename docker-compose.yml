@@ -134,11 +134,14 @@ services:
   mcp-gateway:
     build: ./apps/mcp-gateway
     ports:
-      - "8003:8003"
+      - "127.0.0.1:4000:4000"
     env_file:
       - ./.env
     environment:
       - DATABASE_URL=postgresql://jobblitz:jobblitz@postgres:5432/jobblitz
+      - REDIS_URL=redis://redis:6379/0
+      - MCP_API_KEY=${MCP_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
     depends_on:
       - postgres
       - redis

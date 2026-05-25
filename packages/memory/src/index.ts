@@ -12,3 +12,8 @@ export {
   findJobsMatchingProfile,
 } from "./jobs";
 export type { SemanticJobResult } from "./jobs";
+export { embedText, resetEmbedClient } from "./embed";
+export type { RedisCache } from "./embed";
+export { hybridJobSearch } from "./search";
+export type { HybridSearchOptions, HybridSearchResult } from "./search";
+export { indexJob, indexUserProfile } from "./indexer";

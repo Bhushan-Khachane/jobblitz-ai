@@ -35,6 +35,7 @@ app.route("/api/resumes", routers.resumes);
 app.route("/api/research", routers.research);
 app.route("/api/users", routers.users);
 app.route("/api/dashboard", routers.dashboard);
+app.route("/api/memory", routers.memory);
 
 app.onError(errorHandler);
 app.notFound(notFoundHandler);

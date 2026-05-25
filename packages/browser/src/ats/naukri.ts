@@ -1,39 +1,16 @@
-import { chromium } from "playwright";
 import type { Stagehand } from "@browserbasehq/stagehand";
-import type { Page } from "@browserbasehq/stagehand/lib/v3/understudy/page";
+import type { Page } from "playwright";
 import type { AtsAdapter, ApplyPayload, ApplyResult } from "./index";
-
-const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
-];
 
 function randomDelay(min = 800, max = 2000): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, min + Math.random() * (max - min)));
-}
-
-function pickUserAgent(): string {
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]!;
 }
 
 export const naukriAdapter: AtsAdapter = {
   name: "naukri",
   detect: (url: string) => url.includes("naukri.com"),
 
-  async apply(_stagehand: Stagehand, _page: Page, payload: ApplyPayload): Promise<ApplyResult> {
-    // Naukri uses Akamai WAF — create a dedicated stealth Playwright browser
-    // instead of Stagehand to avoid LLM latency against WAF timing.
-    const browser = await chromium.launch({ headless: true });
-    const ctx = await browser.newContext({
-      viewport: { width: 1366, height: 768 },
-      userAgent: pickUserAgent(),
-      locale: "en-IN",
-    });
-    const page = await ctx.newPage();
-
+  async apply(_stagehand: Stagehand, page: Page, payload: ApplyPayload): Promise<ApplyResult> {
     try {
       await randomDelay();
 
@@ -46,7 +23,6 @@ export const naukriAdapter: AtsAdapter = {
       for (const sel of loginSelectors) {
         const el = await page.$(sel);
         if (el && (await el.isVisible().catch(() => false))) {
-          await browser.close();
           return {
             success: false,
             error: "Naukri login required — connect via Neko cloud browser first",
@@ -63,7 +39,6 @@ export const naukriAdapter: AtsAdapter = {
       for (const sel of extSelectors) {
         const el = await page.$(sel);
         if (el && (await el.isVisible().catch(() => false))) {
-          await browser.close();
           return {
             success: false,
             error: "External apply — company site",
@@ -93,7 +68,6 @@ export const naukriAdapter: AtsAdapter = {
         }
       }
       if (!clicked) {
-        await browser.close();
         return { success: false, error: "No apply button found", step: "apply" };
       }
 
@@ -176,7 +150,6 @@ export const naukriAdapter: AtsAdapter = {
       const screenshotPath = `/tmp/screenshots/naukri_${ts}.png`;
       await page.screenshot({ path: screenshotPath, fullPage: true });
 
-      await browser.close();
       return {
         success,
         confirmationId: success ? page.url() : undefined,
@@ -184,7 +157,6 @@ export const naukriAdapter: AtsAdapter = {
         step: "submitted",
       };
     } catch (err) {
-      await browser.close().catch(() => null);
       return {
         success: false,
         error: err instanceof Error ? err.message : String(err),
