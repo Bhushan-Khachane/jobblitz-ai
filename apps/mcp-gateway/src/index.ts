@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { initTracer, initMetrics } from "@jobblitz/observability";
 import { transport, validateMcpApiKey } from "./server";
+
+initTracer("mcp-gateway");
+initMetrics("mcp-gateway");
 
 const PORT = Number(process.env.PORT || "4000");
 

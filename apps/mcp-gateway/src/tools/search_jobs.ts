@@ -3,6 +3,7 @@ import type { DatabaseClient } from "@jobblitz/db";
 import { hybridJobSearch } from "@jobblitz/memory";
 import type { RedisCache } from "@jobblitz/memory";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { withSpan } from "@jobblitz/observability";
 
 export function registerSearchJobs(server: McpServer, db: DatabaseClient, redis: RedisCache): void {
   // @ts-ignore MCP SDK Zod type recursion
@@ -14,16 +15,18 @@ export function registerSearchJobs(server: McpServer, db: DatabaseClient, redis:
       limit: z.number().optional().describe("Max results (default 10, max 50)"),
     },
     async (args) => {
-      const limit = Math.min(args.limit ?? 10, 50);
-      const results = await hybridJobSearch(db, redis, {
-        userId: args.userId,
-        queryText: args.query,
-        limit,
-      });
+      return withSpan("mcp.tool.search_jobs", async () => {
+        const limit = Math.min(args.limit ?? 10, 50);
+        const results = await hybridJobSearch(db, redis, {
+          userId: args.userId,
+          queryText: args.query,
+          limit,
+        });
 
-      return {
-        content: [{ type: "text", text: JSON.stringify(results) }],
-      };
+        return {
+          content: [{ type: "text", text: JSON.stringify(results) }],
+        };
+      });
     }
   );
 }

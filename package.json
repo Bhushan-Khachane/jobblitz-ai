@@ -10,6 +10,12 @@
     "mcp/*"
   ],
   "scripts": {
+    "dev:all": "bash scripts/dev-all.sh",
+    "dev:ts": "turbo run dev --filter=!apps/api-legacy",
+    "dev:python": "cd apps/api-legacy && uvicorn app.main:app --reload --port 8000",
+    "test:all": "turbo run test && cd apps/api-legacy && pytest -x -q",
+    "build:all": "turbo run build",
+    "deploy": "bash scripts/deploy-fly.sh",
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
     "test": "turbo run test",
@@ -32,5 +38,16 @@
   "packageManager": "bun@1.2.0",
   "engines": {
     "bun": ">=1.2.0"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.218.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
+    "@opentelemetry/resources": "^2.7.1",
+    "@opentelemetry/sdk-metrics": "^2.7.1",
+    "@opentelemetry/sdk-node": "^0.218.0",
+    "@opentelemetry/sdk-trace-node": "^2.7.1",
+    "@opentelemetry/semantic-conventions": "^1.41.1",
+    "langfuse": "^3.38.20"
   }
 }

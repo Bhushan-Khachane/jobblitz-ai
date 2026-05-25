@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import type { DatabaseClient } from "@jobblitz/db";
 import { schema } from "@jobblitz/db";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { withSpan, traceLLMCall } from "@jobblitz/observability";
 
 const { resumes, jobs, tailoredResumes } = schema;
 
@@ -54,77 +55,89 @@ export function registerTailorResume(server: McpServer, db: DatabaseClient): voi
       resumeId: z.string().optional().describe("Optional specific resume UUID; defaults to user's default resume"),
     },
     async (args) => {
-      let resumeId = args.resumeId;
+      return withSpan("mcp.tool.tailor_resume", async () => {
+        let resumeId = args.resumeId;
 
-      if (!resumeId) {
-        const [defaultResume] = await db
+        if (!resumeId) {
+          const [defaultResume] = await db
+            .select()
+            .from(resumes)
+            .where(and(eq(resumes.userId, args.userId), eq(resumes.isDefault, true)))
+            .limit(1);
+          if (!defaultResume) {
+            return {
+              content: [{ type: "text", text: JSON.stringify({ error: "No default resume found" }) }],
+              isError: true,
+            };
+          }
+          resumeId = defaultResume.id;
+        }
+
+        const [resume] = await db
           .select()
           .from(resumes)
-          .where(and(eq(resumes.userId, args.userId), eq(resumes.isDefault, true)))
+          .where(and(eq(resumes.id, resumeId), eq(resumes.userId, args.userId)))
           .limit(1);
-        if (!defaultResume) {
+        if (!resume) {
           return {
-            content: [{ type: "text", text: JSON.stringify({ error: "No default resume found" }) }],
+            content: [{ type: "text", text: JSON.stringify({ error: "Resume not found" }) }],
             isError: true,
           };
         }
-        resumeId = defaultResume.id;
-      }
 
-      const [resume] = await db
-        .select()
-        .from(resumes)
-        .where(and(eq(resumes.id, resumeId), eq(resumes.userId, args.userId)))
-        .limit(1);
-      if (!resume) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ error: "Resume not found" }) }],
-          isError: true,
-        };
-      }
+        const [job] = await db
+          .select()
+          .from(jobs)
+          .where(and(eq(jobs.id, args.jobId), eq(jobs.userId, args.userId)))
+          .limit(1);
+        if (!job) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: "Job not found" }) }],
+            isError: true,
+          };
+        }
 
-      const [job] = await db
-        .select()
-        .from(jobs)
-        .where(and(eq(jobs.id, args.jobId), eq(jobs.userId, args.userId)))
-        .limit(1);
-      if (!job) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ error: "Job not found" }) }],
-          isError: true,
-        };
-      }
+        const system =
+          "You are an expert resume tailor. Rewrite the candidate's resume to better match the job description. Keep the same format and length. Do not invent new experiences.";
+        const user = `Job Title: ${job.title}\nCompany: ${job.company}\nDescription: ${job.description ?? ""}\nRequirements: ${(job.requirements ?? []).join("\n")}\n\nResume:\n${resume.parsedText ?? ""}`;
 
-      const system =
-        "You are an expert resume tailor. Rewrite the candidate's resume to better match the job description. Keep the same format and length. Do not invent new experiences.";
-      const user = `Job Title: ${job.title}\nCompany: ${job.company}\nDescription: ${job.description ?? ""}\nRequirements: ${(job.requirements ?? []).join("\n")}\n\nResume:\n${resume.parsedText ?? ""}`;
+        const llmStart = Date.now();
+        const tailoredContent = await callOpenRouter(system, user);
 
-      const tailoredContent = await callOpenRouter(system, user);
-
-      const [inserted] = await db
-        .insert(tailoredResumes)
-        .values({
+        await traceLLMCall({
+          name: "tailor_resume",
+          model: "moonshotai/kimi-k2.6",
+          input: user.slice(0, 2000),
+          output: tailoredContent.slice(0, 2000),
           userId: args.userId,
-          jobId: args.jobId,
-          resumeId,
-          content: tailoredContent,
-          modelUsed: "moonshotai/kimi-k2.6",
-        })
-        .returning();
+          metadata: { jobId: args.jobId, resumeId, latencyMs: Date.now() - llmStart },
+        });
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              success: true,
-              tailoredResumeId: inserted?.id,
-              modelUsed: "moonshotai/kimi-k2.6",
-              preview: tailoredContent.slice(0, 500),
-            }),
-          },
-        ],
-      };
+        const [inserted] = await db
+          .insert(tailoredResumes)
+          .values({
+            userId: args.userId,
+            jobId: args.jobId,
+            resumeId,
+            content: tailoredContent,
+            modelUsed: "moonshotai/kimi-k2.6",
+          })
+          .returning();
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                success: true,
+                tailoredResumeId: inserted?.id,
+                modelUsed: "moonshotai/kimi-k2.6",
+                preview: tailoredContent.slice(0, 500),
+              }),
+            },
+          ],
+        };
+      });
     }
   );
 }

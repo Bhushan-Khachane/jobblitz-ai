@@ -20,6 +20,7 @@
     "@jobblitz/security": "workspace:*",
     "@jobblitz/research": "workspace:*",
     "@jobblitz/memory": "workspace:*",
+    "@jobblitz/observability": "workspace:*",
     "hono": "^4.7.0",
     "zod": "^3.24.1",
     "bullmq": "^5.41.0",

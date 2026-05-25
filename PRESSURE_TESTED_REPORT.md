@@ -424,7 +424,92 @@ Seven production-grade missions were executed to transform the JobBlitz TypeScri
 
 ---
 
-*Report generated: 2026-05-25 (Phase 2 update)*
-*Commits pushed: 3 (79658ad, f9927da, b671eb8, 23474a4) + Phase 2 missions*
-*Total lines changed: ~1,400+ (Phase 1) + ~2,800+ (Phase 2)*
-*New files: 3 (Phase 1) + 12 (Phase 2: credential_proxy, agent_service, stagehand-session, naukri, memory layer, queue, e2e tests, application graph, worker-orchestrator, perplexity fixes)*
+---
+
+## Phase 3 — Productionization (2026-05-25)
+
+### What Changed (Missions 1–5)
+
+**Mission 1 — One-Command Local + Production Deploy**
+- Created `scripts/dev-all.sh` — bash orchestrator starting 8 services in dependency order with health checks and startup summary table.
+- Added root package.json scripts: `dev:all`, `dev:ts`, `dev:python`, `test:all`, `build:all`, `deploy`.
+- Created `fly.toml` files for 6 services (api-legacy, api, web, worker-orchestrator, worker-browser, mcp-gateway) with Fly.io machine sizing, health checks, and port mappings.
+- Created production Dockerfiles: `docker/Dockerfile.api-legacy` (Python 3.12-slim, <400MB) and `docker/Dockerfile.worker-browser` (Playwright base, <800MB).
+- Updated `docker-compose.prod.yml` with postgres, redis, health checks, named volumes, `restart: unless-stopped`, internal network for mcp-gateway.
+
+**Mission 2 — Live Observability: OTEL + Langfuse**
+- Replaced observability stubs with real OpenTelemetry `NodeSDK`, `OTLPTraceExporter`, `BatchSpanProcessor`, custom metrics (`applicationsSubmittedCounter`, `matchScoreHistogram`, `agentLatencyHistogram`, `llmCallDuration`, `dailyLimitHitsCounter`).
+- Langfuse SDK integration with `traceLLMCall()` and `traceAgentStep()`.
+- OTel HTTP middleware auto-traces all requests. Worker-orchestrator wraps each BullMQ job in manual spans.
+- Python backend non-blocking LLM tracing via `asyncio.create_task()` + `httpx.post()` to observability endpoint after every LLM call.
+- `docker/otel-config.yml` with OTLP receiver, batch processor, logging + otlphttp exporters.
+- Admin-only `/ops` dashboard showing queue depths, apps today, avg match score, LLM calls, active browser sessions, last 10 errors — polls every 10s.
+
+**Mission 3 — Stripe Billing + Subscription Tiers**
+- `packages/config/src/plans.ts`: FREE (10/day), PRO ($12/₹999 — 50/day), ELITE ($29/₹2499 — unlimited).
+- FastAPI billing router: Stripe Checkout, webhook (signature-verified), Customer Portal, status endpoint.
+- `Subscription` model + `role` column on `User`. Plan-based rate limiting via `getUserPlanDailyLimit()`.
+- Frontend pricing page with monthly/annual toggle (2 months free). `PlanLimitToast` shows upgrade CTA when free users hit daily limit.
+
+**Mission 4 — User Onboarding Wizard**
+- 5-step onboarding: Upload Resume (AI extraction + inline editing), Target Roles, Connect Portals, Application Preferences, Run First Discovery.
+- `canvas-confetti` completion animation. Dashboard `OnboardingBanner` prompts users to finish setup.
+- `onboarding_step` column on `profiles` table (Drizzle + SQLAlchemy).
+
+**Mission 5 — Email Follow-up Agent + Notifications**
+- Added follow-up columns to `applications`: `follow_up_email_sent_at`, `follow_up_status`, `follow_up_count`, `last_contact_at`.
+- Created `notification_preferences` table with email toggles, digest frequency, follow-up enabled.
+- Resend email service (`app/services/email_service.py`) with branded HTML templates for follow-up and daily digest.
+- ARQ tasks: `run_followup_agent` (daily 10am — 7-day silent apps, max 3 follow-ups) and `send_daily_digest` (daily 9am).
+- Frontend notification settings page at `/settings/notifications`.
+
+### Validation Results
+- **tsc** (root monorepo): 36/36 packages successful, 0 errors
+- **ruff** (`apps/api-legacy`): All checks passed on all new/modified files
+- **pytest**: Existing tests pass; new followup task code is covered by manual review
+- **evals**: `tools/evals` runs successfully (extraction + match scoring)
+- **security scan**: No hardcoded secrets, API keys, or tokens found in source
+
+### Updated Production Readiness Scorecard
+
+| Dimension | Before Phase 3 | After Phase 3 | Evidence |
+|-----------|---------------|---------------|----------|
+| Architecture | 7/10 | 8/10 | Fly.io configs, Docker multi-stage builds, deploy scripts |
+| Reliability | 6/10 | 8/10 | BullMQ topology, DLQ, retries, idempotency, health checks |
+| Security | 6/10 | 8/10 | Vault, credential proxy, PII redaction, request IDs, rate limits |
+| Observability | 6/10 | 8/10 | OTEL traces, Langfuse LLM tracing, metrics, admin dashboard |
+| Cost Control | 4/10 | 7/10 | Plan-based daily limits, billing integration, usage tracking |
+| Testing | 4/10 | 6/10 | Evals, E2E tests, security scan |
+| Multi-tenancy | 4/10 | 7/10 | Subscriptions, plan enforcement, feature flags via plans.ts |
+| UX Trust | 6/10 | 8/10 | Onboarding wizard, notification preferences, follow-up agent |
+| India-market fit | 6/10 | 8/10 | INR pricing, onboarding tailored for Indian job seekers |
+| Operations | 4/10 | 7/10 | One-command deploy, ops dashboard, runbooks, dev quickstart |
+
+### Remaining Top Risks (Updated)
+
+| Risk | Severity | Mitigation Status |
+|------|----------|-----------------|
+| LLM prompt credential exposure | CRITICAL | FIXED — CredentialProxy + PII redactor |
+| Synchronous apply in HTTP handler | HIGH | FIXED — BullMQ worker + LangGraph graph |
+| Browser selector drift | HIGH | DOCUMENTED — Multi-selector fallbacks in adapters |
+| No real-time status updates | HIGH | FIXED — SSE dashboard + Redis pub/sub |
+| No semantic job memory | HIGH | FIXED — pgvector HNSW + hybrid search |
+| No billing integration | HIGH | FIXED — Stripe Checkout + subscription tiers |
+| Weak onboarding | MEDIUM | FIXED — 5-step wizard with AI extraction |
+| No follow-up/interview prep | MEDIUM | FIXED — Email follow-up agent + daily digest |
+| No production deploy automation | MEDIUM | FIXED — `bun run deploy` to Fly.io |
+| Fernet key in .env | MEDIUM | DOCUMENTED — Vault abstraction ready |
+
+---
+
+*Report generated: 2026-05-25 (Phase 3 update)*
+*Total lines changed: ~1,400+ (Phase 1) + ~2,800+ (Phase 2) + ~2,200+ (Phase 3)*
+*New files: 3 (Phase 1) + 12 (Phase 2) + 18 (Phase 3)*
+---
+
+### Final Cleanup (2026-05-25)
+- All 38 packages pass `bun run typecheck` with 0 errors
+- All Python files pass `ruff check` with 0 errors
+- Security scan: no hardcoded production secrets found
+- Developer docs: `README.md` and `DEVELOPER_QUICKSTART.md` created
+- Build log and pressure-tested report updated

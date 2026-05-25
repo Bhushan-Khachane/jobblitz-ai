@@ -46,6 +46,7 @@ class User(Base):
     )  # manual, assisted, auto
     daily_apply_limit: Mapped[int] = mapped_column(Integer, default=50)
     plan: Mapped[str] = mapped_column(String(20), default="free")
+    role: Mapped[str] = mapped_column(String(20), default="user")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -95,6 +96,7 @@ class Profile(Base):
     ai_summary_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     parsed_profile: Mapped[dict | None] = mapped_column(JSONB)
     profile_parsed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    onboarding_step: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -229,6 +231,10 @@ class Application(Base):
     screenshot_path: Mapped[str | None] = mapped_column(Text)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    follow_up_email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    follow_up_status: Mapped[str | None] = mapped_column(String(20), default="none")
+    follow_up_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_contact_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -236,6 +242,25 @@ class Application(Base):
     job_listing: Mapped["JobListing"] = relationship("JobListing", back_populates="applications")
 
     __table_args__ = (Index("ix_applications_user_status", "user_id", "status"),)
+
+
+class NotificationPreference(Base):
+    """User notification preferences."""
+    __tablename__ = "notification_preferences"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    )
+    email_notifications: Mapped[bool] = mapped_column(Boolean, default=True)
+    digest_frequency: Mapped[str] = mapped_column(String(20), default="daily")
+    follow_up_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    application_updates: Mapped[bool] = mapped_column(Boolean, default=True)
+    marketing: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user: Mapped["User"] = relationship("User")
 
 
 class QuestionAnswer(Base):
@@ -627,3 +652,20 @@ class AuditEvent(Base):
         Index("ix_audit_events_actor", "actor"),
         Index("ix_audit_events_created_at", "created_at"),
     )
+
+
+class Subscription(Base):
+    """Stripe subscription tracking for billing."""
+    __tablename__ = "subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    )
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(255))
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(255))
+    plan: Mapped[str] = mapped_column(String(20), default="free")
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -5,6 +5,15 @@ import { createDatabaseClient, schema } from "@jobblitz/db";
 import { validateSecrets } from "@jobblitz/security";
 import { createApplicationGraph } from "@jobblitz/agents";
 import { Command, isGraphInterrupt } from "@langchain/langgraph";
+import {
+  initTracer,
+  shutdownTracer,
+  recordError,
+  initMetrics,
+  applicationsSubmittedCounter,
+  agentLatencyHistogram,
+} from "@jobblitz/observability";
+import { trace } from "@opentelemetry/api";
 
 const secrets = validateSecrets(process.env);
 const db = createDatabaseClient(secrets.DATABASE_URL);
@@ -47,7 +56,7 @@ async function buildPayload(data: ApplicationJobData) {
     .limit(1);
 
   const [job] = await db
-    .select({ applyUrl: schema.jobs.applyUrl })
+    .select({ applyUrl: schema.jobs.applyUrl, platform: schema.jobs.platform })
     .from(schema.jobs)
     .where(and(eq(schema.jobs.id, data.jobId), eq(schema.jobs.userId, data.userId)))
     .limit(1);
@@ -85,6 +94,7 @@ async function buildPayload(data: ApplicationJobData) {
       coverLetter,
       linkedin: profile?.linkedinUrl || undefined,
       portfolio: profile?.portfolioUrl || undefined,
+      platform: job?.platform || undefined,
     },
   };
 }
@@ -133,6 +143,9 @@ async function publishApprovalEvent(userId: string, applicationId: string, jobId
 }
 
 async function run() {
+  initTracer("worker-orchestrator");
+  initMetrics("worker-orchestrator");
+
   const graph = await createApplicationGraph({ db });
 
   // Dedicated orchestration queue
@@ -142,138 +155,185 @@ async function run() {
     "orchestration-jobs",
     async (job) => {
       const data = job.data;
+      const tracer = trace.getTracer("worker-orchestrator");
+      const span = tracer.startSpan("orchestration.job");
+      span.setAttribute("job.type", data.type);
+      span.setAttribute("job.id", job.id || "");
+      span.setAttribute("application.id", data.applicationId);
+      span.setAttribute("user.id", data.userId);
       console.log(`[worker] ${data.type} job ${job.id} application=${data.applicationId}`);
 
+      const startMs = Date.now();
       const threadId = data.applicationId;
 
-      if (data.type === "apply") {
-        const { jobUrl, payload } = await buildPayload(data);
+      try {
+        if (data.type === "apply") {
+          const { jobUrl, payload } = await buildPayload(data);
 
-        if (!jobUrl) {
-          throw new Error(`No applyUrl for job ${data.jobId}`);
-        }
+          if (!jobUrl) {
+            throw new Error(`No applyUrl for job ${data.jobId}`);
+          }
 
-        const initialState = {
-          userId: data.userId,
-          jobId: data.jobId,
-          applicationId: data.applicationId,
-          jobUrl,
-          payload,
-        };
-
-        try {
-          await graph.invoke(initialState, { configurable: { thread_id: threadId } });
-
-          // Graph completed successfully
-          await db
-            .update(schema.applications)
-            .set({
-              status: "submitted",
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.applications.id, data.applicationId));
-
-          await publishNotification(data.userId, {
-            type: "application_completed",
-            applicationId: data.applicationId,
+          const initialState = {
+            userId: data.userId,
             jobId: data.jobId,
-            timestamp: new Date().toISOString(),
-          });
-        } catch (err) {
-          if (isGraphInterrupt(err)) {
-            console.log(`[worker] interrupt awaiting approval for application ${data.applicationId}`);
+            applicationId: data.applicationId,
+            jobUrl,
+            payload,
+          };
 
-            await writeCheckpoint(
-              data.applicationId,
-              data.userId,
-              { userId: data.userId, jobId: data.jobId, applicationId: data.applicationId, jobUrl, payload },
-              "awaiting_approval"
+          try {
+            await graph.invoke(initialState, { configurable: { thread_id: threadId } });
+
+            // Graph completed successfully
+            await db
+              .update(schema.applications)
+              .set({
+                status: "submitted",
+                updatedAt: new Date(),
+              })
+              .where(eq(schema.applications.id, data.applicationId));
+
+            applicationsSubmittedCounter.add(1, {
+              userId: data.userId,
+              platform: payload.platform || "unknown",
+              status: "submitted",
+            });
+
+            await publishNotification(data.userId, {
+              type: "application_completed",
+              applicationId: data.applicationId,
+              jobId: data.jobId,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (err) {
+            if (isGraphInterrupt(err)) {
+              console.log(`[worker] interrupt awaiting approval for application ${data.applicationId}`);
+
+              await writeCheckpoint(
+                data.applicationId,
+                data.userId,
+                { userId: data.userId, jobId: data.jobId, applicationId: data.applicationId, jobUrl, payload },
+                "awaiting_approval"
+              );
+
+              await db
+                .update(schema.applications)
+                .set({
+                  status: "pending",
+                  approvalStatus: "pending",
+                  updatedAt: new Date(),
+                })
+                .where(eq(schema.applications.id, data.applicationId));
+
+              await publishApprovalEvent(data.userId, data.applicationId, data.jobId);
+              span.end();
+              return;
+            }
+
+            // Real failure after retries
+            console.error(`[worker] fatal error for application ${data.applicationId}:`, err);
+
+            await db
+              .update(schema.applications)
+              .set({
+                status: "failed",
+                errorMessage: err instanceof Error ? err.message : String(err),
+                updatedAt: new Date(),
+              })
+              .where(eq(schema.applications.id, data.applicationId));
+
+            await updateCheckpointStatus(data.applicationId, "failed");
+
+            applicationsSubmittedCounter.add(1, {
+              userId: data.userId,
+              platform: payload.platform || "unknown",
+              status: "failed",
+            });
+
+            await publishNotification(data.userId, {
+              type: "application_failed",
+              applicationId: data.applicationId,
+              jobId: data.jobId,
+              error: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            });
+
+            recordError(span, err);
+            span.end();
+            throw err;
+          }
+        } else if (data.type === "resume") {
+          try {
+            await graph.invoke(
+              new Command({ resume: { approved: true } }),
+              { configurable: { thread_id: threadId } }
             );
 
             await db
               .update(schema.applications)
               .set({
-                status: "pending",
-                approvalStatus: "pending",
+                status: "submitted",
                 updatedAt: new Date(),
               })
               .where(eq(schema.applications.id, data.applicationId));
 
-            await publishApprovalEvent(data.userId, data.applicationId, data.jobId);
-            return;
-          }
-
-          // Real failure after retries
-          console.error(`[worker] fatal error for application ${data.applicationId}:`, err);
-
-          await db
-            .update(schema.applications)
-            .set({
-              status: "failed",
-              errorMessage: err instanceof Error ? err.message : String(err),
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.applications.id, data.applicationId));
-
-          await updateCheckpointStatus(data.applicationId, "failed");
-
-          await publishNotification(data.userId, {
-            type: "application_failed",
-            applicationId: data.applicationId,
-            jobId: data.jobId,
-            error: err instanceof Error ? err.message : String(err),
-            timestamp: new Date().toISOString(),
-          });
-
-          throw err;
-        }
-      } else if (data.type === "resume") {
-        try {
-          await graph.invoke(
-            new Command({ resume: { approved: true } }),
-            { configurable: { thread_id: threadId } }
-          );
-
-          await db
-            .update(schema.applications)
-            .set({
+            applicationsSubmittedCounter.add(1, {
+              userId: data.userId,
+              platform: "unknown",
               status: "submitted",
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.applications.id, data.applicationId));
+            });
 
-          await publishNotification(data.userId, {
-            type: "application_completed",
-            applicationId: data.applicationId,
-            jobId: data.jobId,
-            timestamp: new Date().toISOString(),
-          });
-        } catch (err) {
-          if (isGraphInterrupt(err)) {
-            console.log(`[worker] interrupt on resume for application ${data.applicationId}`);
-            return;
-          }
+            await publishNotification(data.userId, {
+              type: "application_completed",
+              applicationId: data.applicationId,
+              jobId: data.jobId,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (err) {
+            if (isGraphInterrupt(err)) {
+              console.log(`[worker] interrupt on resume for application ${data.applicationId}`);
+              span.end();
+              return;
+            }
 
-          await db
-            .update(schema.applications)
-            .set({
+            await db
+              .update(schema.applications)
+              .set({
+                status: "failed",
+                errorMessage: err instanceof Error ? err.message : String(err),
+                updatedAt: new Date(),
+              })
+              .where(eq(schema.applications.id, data.applicationId));
+
+            await updateCheckpointStatus(data.applicationId, "failed");
+
+            applicationsSubmittedCounter.add(1, {
+              userId: data.userId,
+              platform: "unknown",
               status: "failed",
-              errorMessage: err instanceof Error ? err.message : String(err),
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.applications.id, data.applicationId));
+            });
 
-          await updateCheckpointStatus(data.applicationId, "failed");
+            await publishNotification(data.userId, {
+              type: "application_failed",
+              applicationId: data.applicationId,
+              jobId: data.jobId,
+              error: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            });
 
-          await publishNotification(data.userId, {
-            type: "application_failed",
-            applicationId: data.applicationId,
-            jobId: data.jobId,
-            error: err instanceof Error ? err.message : String(err),
-            timestamp: new Date().toISOString(),
-          });
-
-          throw err;
+            recordError(span, err);
+            span.end();
+            throw err;
+          }
+        }
+      } finally {
+        agentLatencyHistogram.record(Date.now() - startMs, {
+          agentName: "orchestrator",
+          step: data.type,
+        });
+        if (span.isRecording()) {
+          span.end();
         }
       }
     },
@@ -297,6 +357,7 @@ async function run() {
     await orchestrationQueue.close();
     await redisPub.quit();
     await connection.quit();
+    await shutdownTracer();
     console.log("[worker-orchestrator] shutdown complete");
     process.exit(0);
   }

@@ -61,6 +61,7 @@ export const users = pgTable("users", {
   applicationMode: applicationModeEnum("application_mode").default("assisted").notNull(),
   dailyApplyLimit: integer("daily_apply_limit").default(50).notNull(),
   plan: planEnum("plan").default("free").notNull(),
+  role: varchar("role", { length: 20 }).default("user").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -99,6 +100,7 @@ export const profiles = pgTable("profiles", {
   aiSummaryUpdatedAt: timestamp("ai_summary_updated_at", { withTimezone: true }),
   parsedProfile: jsonb("parsed_profile"),
   profileParsedAt: timestamp("profile_parsed_at", { withTimezone: true }),
+  onboardingStep: integer("onboarding_step").default(0).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -302,6 +304,10 @@ export const applications = pgTable(
     screenshotPath: text("screenshot_path"),
     retryCount: integer("retry_count").default(0).notNull(),
     appliedAt: timestamp("applied_at", { withTimezone: true }),
+    followUpEmailSentAt: timestamp("follow_up_email_sent_at", { withTimezone: true }),
+    followUpStatus: varchar("follow_up_status", { length: 20 }).default("none"),
+    followUpCount: integer("follow_up_count").default(0).notNull(),
+    lastContactAt: timestamp("last_contact_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -612,4 +618,44 @@ export const orchestrationCheckpoints = pgTable(
     index("ix_checkpoints_user_status").on(table.userId, table.status),
     index("ix_checkpoints_expires").on(table.expiresAt),
   ]
+);
+
+export const subscriptionStatusEnum = pgEnum("subscription_status", [
+  "active",
+  "past_due",
+  "canceled",
+]);
+
+export const subscriptions = pgTable("subscriptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" })
+    .unique(),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
+  stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
+  plan: planEnum("plan").default("free").notNull(),
+  status: subscriptionStatusEnum("status").default("active").notNull(),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const notificationPreferences = pgTable(
+  "notification_preferences",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" })
+      .unique(),
+    emailNotifications: boolean("email_notifications").default(true).notNull(),
+    digestFrequency: varchar("digest_frequency", { length: 20 }).default("daily").notNull(),
+    followUpEnabled: boolean("follow_up_enabled").default(true).notNull(),
+    applicationUpdates: boolean("application_updates").default(true).notNull(),
+    marketing: boolean("marketing").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("ix_notification_prefs_user").on(table.userId)]
 );

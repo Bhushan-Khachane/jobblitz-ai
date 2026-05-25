@@ -4,6 +4,8 @@ export { RateLimiter } from "./rate-limit";
 export {
   applicationRateLimit,
   llmRateLimit,
+  getDailyLimitFromPlan,
+  getUserPlanDailyLimit,
   type ApplicationRateLimitResult,
   type LlmRateLimitResult,
 } from "./rate-limiter";

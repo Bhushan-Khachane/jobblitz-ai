@@ -12,6 +12,8 @@
     "clean": "rm -rf dist .tsbuildinfo"
   },
   "dependencies": {
+    "@jobblitz/db": "workspace:*",
+    "drizzle-orm": "^0.40.0",
     "hono": "^4.7.0",
     "zod": "^3.24.1"
   },

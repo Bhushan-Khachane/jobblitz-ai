@@ -1,13 +1,17 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { validateAtStartup } from "@jobblitz/security";
+import { initTracer, initMetrics } from "@jobblitz/observability";
 import { auth } from "./auth";
 import { loggerMiddleware } from "./middleware/logger";
 import { rateLimitMiddleware } from "./middleware/rate-limit";
+import { otelMiddleware } from "./middleware/otel";
 import { errorHandler, notFoundHandler } from "./middleware/error";
 import { routers } from "./routers";
 
 validateAtStartup();
+initTracer("jobblitz-api");
+initMetrics("jobblitz-api");
 
 const app = new Hono();
 
@@ -18,6 +22,7 @@ app.use(cors({
   credentials: true,
 }));
 
+app.use(otelMiddleware);
 app.use(loggerMiddleware);
 app.use(rateLimitMiddleware);
 
@@ -36,6 +41,8 @@ app.route("/api/research", routers.research);
 app.route("/api/users", routers.users);
 app.route("/api/dashboard", routers.dashboard);
 app.route("/api/memory", routers.memory);
+app.route("/api/observability", routers.observability);
+app.route("/api/ops", routers.ops);
 
 app.onError(errorHandler);
 app.notFound(notFoundHandler);

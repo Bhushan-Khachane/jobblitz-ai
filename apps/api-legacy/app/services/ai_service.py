@@ -1,10 +1,44 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
+import httpx
+
+from app.config import settings
 from app.services.llm_client import get_llm_client
 
 logger = logging.getLogger(__name__)
+
+OBSERVABILITY_URL = "http://localhost:8000/api/observability/llm-trace"
+
+
+def _trace_llm_call(name: str, model: str, input_text: str, output_text: str, user_id: str | None = None, metadata: dict | None = None) -> None:
+    """Fire-and-forget LLM trace to the observability endpoint."""
+    if not settings.INTERNAL_API_KEY:
+        return
+
+    payload = {
+        "name": name,
+        "model": model,
+        "input": input_text[:4000],
+        "output": output_text[:4000],
+        "userId": user_id,
+        "metadata": metadata or {},
+    }
+
+    async def _post():
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    OBSERVABILITY_URL,
+                    json=payload,
+                    headers={"x-internal-key": settings.INTERNAL_API_KEY},
+                )
+        except Exception as e:
+            logger.debug(f"LLM trace post failed: {e}")
+
+    asyncio.create_task(_post())
 
 RESUME_TAILOR_SYSTEM = (
     "You are an expert resume writer. Given a resume and job description, rewrite the resume "
@@ -75,7 +109,9 @@ async def _chat(system: str, user: str) -> str:
 
 async def resume_tailor(resume_text: str, job_description: str) -> str:
     user_msg = f"### RESUME\n{resume_text}\n\n### JOB DESCRIPTION\n{job_description}"
-    return await _chat(RESUME_TAILOR_SYSTEM, user_msg)
+    result = await _chat(RESUME_TAILOR_SYSTEM, user_msg)
+    _trace_llm_call("resume_tailor", "ollama_pro", user_msg, result)
+    return result
 
 
 async def cover_letter_generate(
@@ -91,19 +127,26 @@ async def cover_letter_generate(
     ]
     if job_title:
         parts.insert(1, f"### JOB TITLE\n{job_title}")
-    return await _chat(COVER_LETTER_SYSTEM, "\n\n".join(parts))
+    user_msg = "\n\n".join(parts)
+    result = await _chat(COVER_LETTER_SYSTEM, user_msg)
+    _trace_llm_call("cover_letter_generate", "ollama_pro", user_msg, result)
+    return result
 
 
 async def answer_question(question: str, candidate_profile: str) -> str:
     user_msg = f"### QUESTION\n{question}\n\n### CANDIDATE PROFILE\n{candidate_profile}"
-    return await _chat(QUESTION_ANSWER_SYSTEM, user_msg)
+    result = await _chat(QUESTION_ANSWER_SYSTEM, user_msg)
+    _trace_llm_call("answer_question", "ollama_pro", user_msg, result)
+    return result
 
 
 async def extract_resume_profile(resume_text: str) -> dict:
     """Use LLM to extract structured profile data from raw resume text."""
     client = get_llm_client()
     user_msg = f"### RESUME\n{resume_text}\n\nExtract the structured profile."
-    return await client.generate_structured(EXTRACT_RESUME_PROFILE_SYSTEM, user_msg)
+    result = await client.generate_structured(EXTRACT_RESUME_PROFILE_SYSTEM, user_msg)
+    _trace_llm_call("extract_resume_profile", "ollama_pro", user_msg, str(result))
+    return result
 
 
 async def generate_professional_summary(profile_data: dict, resume_text: str | None = None) -> str:
@@ -111,7 +154,10 @@ async def generate_professional_summary(profile_data: dict, resume_text: str | N
     parts = ["### CANDIDATE PROFILE\n" + str(profile_data)]
     if resume_text:
         parts.append(f"### RESUME TEXT\n{resume_text}")
-    return await _chat(GENERATE_PROFESSIONAL_SUMMARY_SYSTEM, "\n\n".join(parts))
+    user_msg = "\n\n".join(parts)
+    result = await _chat(GENERATE_PROFESSIONAL_SUMMARY_SYSTEM, user_msg)
+    _trace_llm_call("generate_professional_summary", "ollama_pro", user_msg, result)
+    return result
 
 
 async def match_job_to_resume_llm(job_description: str, resume_text: str) -> float:
@@ -119,6 +165,7 @@ async def match_job_to_resume_llm(job_description: str, resume_text: str) -> flo
     user_msg = f"### RESUME\n{resume_text}\n\n### JOB DESCRIPTION\n{job_description}"
     raw = await _chat(MATCH_JOB_RESUME_SYSTEM, user_msg)
     raw = raw.strip()
+    _trace_llm_call("match_job_to_resume_llm", "ollama_pro", user_msg, raw)
     try:
         score = int(raw)
         return max(0.0, min(1.0, score / 100.0))

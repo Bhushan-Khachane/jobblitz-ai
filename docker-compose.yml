@@ -159,6 +159,15 @@ services:
       - api
     restart: unless-stopped
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    ports:
+      - "4317:4317"
+    volumes:
+      - ./docker/otel-config.yml:/etc/otel/config.yml
+    command: ["--config", "/etc/otel/config.yml"]
+    restart: unless-stopped
+
 networks:
   default:
     driver: bridge

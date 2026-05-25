@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str = ""
     SUPABASE_BUCKET_NAME: str = "screenshots"
 
+    # ── Email (Resend) ──────────────────────────────────────────────────────
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "notifications@jobblitz.ai"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 

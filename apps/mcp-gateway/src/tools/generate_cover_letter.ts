@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import type { DatabaseClient } from "@jobblitz/db";
 import { schema } from "@jobblitz/db";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { withSpan, traceLLMCall } from "@jobblitz/observability";
 
 const { profiles, jobs, coverLetters } = schema;
 
@@ -53,54 +54,66 @@ export function registerGenerateCoverLetter(server: McpServer, db: DatabaseClien
       jobId: z.string().describe("The UUID of the job"),
     },
     async (args) => {
-      const [profile] = await db
-        .select()
-        .from(profiles)
-        .where(eq(profiles.userId, args.userId))
-        .limit(1);
+      return withSpan("mcp.tool.generate_cover_letter", async () => {
+        const [profile] = await db
+          .select()
+          .from(profiles)
+          .where(eq(profiles.userId, args.userId))
+          .limit(1);
 
-      const [job] = await db
-        .select()
-        .from(jobs)
-        .where(and(eq(jobs.id, args.jobId), eq(jobs.userId, args.userId)))
-        .limit(1);
+        const [job] = await db
+          .select()
+          .from(jobs)
+          .where(and(eq(jobs.id, args.jobId), eq(jobs.userId, args.userId)))
+          .limit(1);
 
-      if (!profile || !job) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ error: "Profile or job not found" }) }],
-          isError: true,
-        };
-      }
+        if (!profile || !job) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: "Profile or job not found" }) }],
+            isError: true,
+          };
+        }
 
-      const system =
-        "You are an expert cover letter writer. Write a concise, personalized cover letter (max 300 words) for the candidate applying to the given job.";
-      const user = `Candidate: ${profile.headline ?? ""}\nSummary: ${profile.summary ?? ""}\nSkills: ${(profile.skills ?? []).join(", ")}\n\nJob: ${job.title} at ${job.company}\nDescription: ${job.description ?? ""}\nRequirements: ${(job.requirements ?? []).join("\n")}`;
+        const system =
+          "You are an expert cover letter writer. Write a concise, personalized cover letter (max 300 words) for the candidate applying to the given job.";
+        const user = `Candidate: ${profile.headline ?? ""}\nSummary: ${profile.summary ?? ""}\nSkills: ${(profile.skills ?? []).join(", ")}\n\nJob: ${job.title} at ${job.company}\nDescription: ${job.description ?? ""}\nRequirements: ${(job.requirements ?? []).join("\n")}`;
 
-      const content = await callOpenRouter(system, user);
+        const llmStart = Date.now();
+        const content = await callOpenRouter(system, user);
 
-      const [inserted] = await db
-        .insert(coverLetters)
-        .values({
+        await traceLLMCall({
+          name: "generate_cover_letter",
+          model: "moonshotai/kimi-k2.6",
+          input: user.slice(0, 2000),
+          output: content.slice(0, 2000),
           userId: args.userId,
-          jobId: args.jobId,
-          content,
-          modelUsed: "moonshotai/kimi-k2.6",
-          promptVersion: "v1",
-        })
-        .returning();
+          metadata: { jobId: args.jobId, latencyMs: Date.now() - llmStart },
+        });
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              success: true,
-              coverLetterId: inserted?.id,
-              content,
-            }),
-          },
-        ],
-      };
+        const [inserted] = await db
+          .insert(coverLetters)
+          .values({
+            userId: args.userId,
+            jobId: args.jobId,
+            content,
+            modelUsed: "moonshotai/kimi-k2.6",
+            promptVersion: "v1",
+          })
+          .returning();
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                success: true,
+                coverLetterId: inserted?.id,
+                content,
+              }),
+            },
+          ],
+        };
+      });
     }
   );
 }

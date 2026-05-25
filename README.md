@@ -1,107 +1,186 @@
 # JobBlitz AI 🚀
 
-> Automated job application platform for Indian job seekers — applies to LinkedIn and Naukri automatically using AI
+> Trust-centered, India-focused autonomous job application platform — AI discovers, scores, tailors, and applies to jobs on LinkedIn and Naukri while you approve the best matches.
 
 ## Quick Start
 
 ### Prerequisites
 
-- Docker & Docker Compose installed
-- Gemini API key (for AI features) — free at [aistudio.google.com](https://aistudio.google.com)
-- Supabase project (free tier works) — for Auth, Realtime, and Storage
+- Docker & Docker Compose
+- Bun 1.3+ (`curl -fsSL https://bun.sh/install | bash`)
+- Python 3.12+ (for legacy backend)
 
-### Setup
+### One-Command Local Start
 
-1. **Clone the repo**
+```bash
+git clone https://github.com/Bhushan-Khachane/jobblitz-ai.git
+cd jobblitz-ai
+cp .env.example .env  # fill in required keys
+bun install
+bun run dev:all
+```
 
-   ```bash
-   git clone https://github.com/Bhushan-Khachane/jobblitz-ai.git
-   cd jobblitz-ai
-   ```
-
-2. **Configure backend**
-
-   ```bash
-   cp backend/.env.example backend/.env
-   # Edit backend/.env and fill in:
-   # - SECRET_KEY (generate: python3 -c "import secrets; print(secrets.token_hex(32))")
-   # - FERNET_KEY (generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-   # - GEMINI_API_KEY  (primary AI — free at aistudio.google.com)
-   # - SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
-   # - SUPABASE_JWT_SECRET
-   ```
-
-3. **Configure frontend**
-
-   ```bash
-   cp frontend/.env.example frontend/.env
-   # Edit frontend/.env and fill in:
-   # - NEXT_PUBLIC_SUPABASE_URL
-   # - NEXT_PUBLIC_SUPABASE_ANON_KEY
-   ```
-
-4. **Start everything**
-
-   ```bash
-   chmod +x scripts/start.sh
-   ./scripts/start.sh
-   ```
+This starts all 8 services in dependency order: Postgres (pgvector), Redis, FastAPI legacy, Hono API, BullMQ orchestrator, browser worker, MCP gateway, and Next.js web app.
 
 ### Services
 
-| Service          | URL                                   | Description            |
-| ---------------- | ------------------------------------- | ---------------------- |
-| Frontend         | http://localhost:3001                  | Next.js UI             |
-| Backend API      | http://localhost:8000                  | FastAPI                |
-| API Docs         | http://localhost:8000/docs             | Swagger UI             |
-| Health Check     | http://localhost:8000/health/           | System health          |
-| Health (detailed)| http://localhost:8000/health/detailed  | DB + Redis + queue     |
-
-## Architecture
-
-- **Frontend**: Next.js 14 + TypeScript + Tailwind + shadcn/ui
-- **Backend**: FastAPI + SQLAlchemy async + PostgreSQL
-- **Workers**: ARQ (async Redis queue) — discovers jobs every 2 hours, auto-applies every 30 min
-- **AI**: Google Gemini (primary) + OpenAI GPT-4o-mini (fallback) for cover letters, Q&A, resume tailoring
-- **Automation**: Playwright + stealth (LinkedIn Easy Apply & Naukri direct apply)
-- **Cloud Browser**: Neko — zero-password architecture, users log in via secure streaming browser
+| Service | URL | Description |
+|---------|-----|-------------|
+| Web Frontend | http://localhost:3000 | Next.js 15 + Tailwind + shadcn/ui |
+| API (Hono) | http://localhost:8000 | TypeScript API + SSE dashboard |
+| API Legacy | http://localhost:8004 | FastAPI + ARQ workers |
+| API Docs | http://localhost:8004/docs | Swagger UI |
+| MCP Gateway | http://localhost:4000/mcp | Internal MCP tools |
+| Health Check | http://localhost:8004/health/ | System health |
 
 ## How It Works
 
-1. Upload your resume and set job preferences
-2. Connect LinkedIn/Naukri via secure cloud browser (your password never touches our servers)
-3. JobBlitz discovers matching jobs every 2 hours using AI scoring
-4. In **Assisted mode**: review and approve applications before they're submitted
-5. In **Auto mode**: applications submitted automatically with human-like behavior
+1. **Upload your resume** — AI extracts skills, experience, and preferences
+2. **Set target roles** — Job titles, locations, salary, experience level
+3. **Connect accounts** — Secure cloud browser login (passwords never touch our servers)
+4. **Choose application mode**:
+   - **Manual**: Discover + tailor, you apply yourself
+   - **Assisted**: AI prepares everything, you approve before submit (default)
+   - **Auto**: AI auto-applies for high-confidence, low-risk matches
+5. **JobBlitz runs discovery** every 2 hours, scores matches with AI, and queues applications
+6. **Real-time dashboard** shows live progress via SSE — approve, skip, or let it run
+
+## Architecture
+
+```
+Frontend (Next.js 15) ──REST/SSE──> API (Hono) ──REST──> API Legacy (FastAPI)
+                                      │
+                                      ├──> BullMQ ──> Worker Orchestrator (LangGraph)
+                                      │                 └──> Browser Worker (Playwright + Stagehand)
+                                      │
+                                      ├──> MCP Gateway (internal tools: search, tailor, enqueue)
+                                      │
+                                      └──> PostgreSQL (pgvector) + Redis
+```
+
+### Key Technologies
+
+- **Frontend**: Next.js 15 + TypeScript + Tailwind + shadcn/ui + Framer Motion
+- **API Layer**: Hono (TypeScript) + FastAPI (Python legacy)
+- **Workers**: BullMQ (TypeScript) + ARQ (Python) — async job queues
+- **AI/LLM**: OpenAI GPT-4o-mini, Google Gemini, OpenRouter (Kimi K2.6)
+- **Browser Automation**: Playwright + Stagehand v3 + stealth for Naukri
+- **ATS Adapters**: Greenhouse, Lever, Ashby, Workday, Naukri, LinkedIn
+- **Semantic Search**: pgvector (1536-dim embeddings) + HNSW index + hybrid ranking
+- **Observability**: OpenTelemetry + Langfuse + custom metrics
+- **Billing**: Stripe Checkout + subscription tiers (Free / Pro / Elite)
+- **Security**: AES-256-GCM vault, credential proxy (TTL + single-use), PII redaction
+
+## Pricing
+
+| Plan | Monthly | Annual | Daily Applies | Key Features |
+|------|---------|--------|---------------|--------------|
+| **Free** | $0 | $0 | 10 | Manual mode, 3 saved searches |
+| **Pro** | $12 / ₹999 | $120 / ₹9990 | 50 | All modes, semantic search, 5 AI resume + cover letter/day |
+| **Elite** | $29 / ₹2499 | $290 / ₹24990 | Unlimited | Priority workers, interview prep, ATS checker, resume translator, email follow-up |
 
 ## Project Structure
 
 ```
-├── backend/               # FastAPI + ARQ + Playwright
-│   ├── app/
-│   │   ├── routers/       # API endpoints
-│   │   ├── services/      # Scraper, apply, matching, AI services
-│   │   ├── workers/       # ARQ tasks & cron schedule
-│   │   └── models.py      # SQLAlchemy ORM models
-│   ├── alembic/           # Database migrations
-│   └── scripts/           # Smoke test & utilities
-├── frontend/              # Next.js 14 app
-│   ├── app/               # App Router pages
-│   ├── components/        # Reusable UI components
-│   └── hooks/             # React hooks (Supabase Realtime)
-├── docker/                # Neko cloud browser Dockerfile
-├── scripts/               # Startup scripts
-└── docker-compose.yml     # Full stack orchestration
+├── apps/
+│   ├── web/                    # Next.js 15 frontend
+│   ├── api/                    # Hono TypeScript API
+│   ├── api-legacy/             # FastAPI Python backend
+│   ├── worker-orchestrator/    # BullMQ + LangGraph application worker
+│   ├── worker-browser/         # Playwright browser automation worker
+│   └── mcp-gateway/            # MCP server with domain-specific tools
+├── packages/
+│   ├── db/                     # Drizzle schema + migrations
+│   ├── agents/                 # LangGraph graphs + nodes
+│   ├── browser/                # ATS adapters (Greenhouse, Lever, Naukri, LinkedIn)
+│   ├── memory/                 # pgvector semantic search + embeddings
+│   ├── security/               # Vault, credential proxy, PII redaction, rate limiting
+│   ├── observability/          # OpenTelemetry tracing + Langfuse + metrics
+│   └── config/                 # Plan tiers + env validation
+├── scripts/
+│   ├── dev-all.sh              # One-command local orchestrator
+│   └── deploy-fly.sh          # Fly.io production deployment
+├── docker/
+│   ├── Dockerfile.api-legacy   # Multi-stage Python 3.12-slim (<400MB)
+│   └── Dockerfile.worker-browser # Playwright base (<800MB)
+├── docs/
+│   ├── DEVELOPER_QUICKSTART.md
+│   ├── BUILD_LOG.md
+│   └── architecture/
+├── fly.toml                    # Fly.io configs (6 services)
+├── docker-compose.yml          # Local dev stack
+├── docker-compose.prod.yml     # Production stack
+└── README.md
 ```
 
-## Pricing
+## India-Specific Features
 
-| Plan       | Price      | Daily Applies |
-|------------|------------|---------------|
-| Free       | ₹0         | 10/day        |
-| Starter    | ₹499/mo    | 25/day        |
-| Pro        | ₹999/mo    | 50/day        |
-| Unlimited  | ₹1,999/mo  | 100/day       |
+- **LPA salary parsing**: "12-15 LPA" → normalized average
+- **Notice period matching**: 30/60/90 days standard
+- **Metro city clusters**: Bangalore/Bengaluru, Gurgaon/Gurugram, etc.
+- **Title normalization**: SDE → software engineer, SSE → senior software engineer
+- **Skill synonyms**: react/reactjs/React.js, node/nodejs/Node.js
+- **Naukri stealth automation**: Rotated UAs, human-like delays, locale spoofing
+- **INR pricing**: ₹999/₹2499 monthly with 2 months free on annual
+
+## Application Pipeline
+
+1. **Discovery** — Scrapers run every 2h (LinkedIn, Naukri)
+2. **Scoring** — 5-dimension AI match (skills, experience, salary, location, confidence)
+3. **Tailoring** — AI tailors resume + generates cover letter per job
+4. **Approval** (assisted mode) — User reviews and approves via dashboard
+5. **Application** — Browser worker fills forms via ATS adapters
+6. **Follow-up** — Automated email reminders after 7 days of no response
+7. **Status sync** — Portal inbox syncs interview/rejection updates
+
+## Notifications
+
+- **Real-time SSE**: Dashboard streams live events (discovered, applied, failed, approval needed)
+- **Daily digest**: Email summary of new jobs, applications, pending approvals
+- **Follow-up reminders**: Polite follow-up emails for silent applications
+- **Notification preferences**: `/settings/notifications` — toggle emails, digest frequency, follow-ups
+
+## Observability
+
+- **Traces**: OpenTelemetry OTLP export for every HTTP request and BullMQ job
+- **Metrics**: Applications submitted, match score histogram, LLM call duration, queue depth
+- **LLM tracing**: Langfuse integration for all AI calls
+- **Admin dashboard**: `/ops` — queue depths, daily stats, active browser sessions, errors (admin only)
+
+## Security
+
+- **Zero-password storage**: Session cookies only — credentials never stored plaintext
+- **Credential proxy**: In-memory, TTL 120s, single-use tokens for browser automation
+- **PII redaction**: Email, phone, Aadhaar, PAN redacted from logs and LLM prompts
+- **AES-256-GCM vault**: PBKDF2 key derivation with per-user salts
+- **Rate limiting**: Redis-backed sliding window — 100 LLM calls/hour, plan-based daily apply limits
+
+## Deployment
+
+### Fly.io (Production)
+
+```bash
+bun run deploy
+```
+
+Deploys 6 services in dependency order, sets secrets from `.env.production`, runs migrations, and prints URLs.
+
+### Docker Compose (Self-hosted)
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Includes Postgres, Redis, all services with health checks and restart policies.
+
+## Developer Guide
+
+See [`docs/DEVELOPER_QUICKSTART.md`](docs/DEVELOPER_QUICKSTART.md) for:
+- Manual service startup
+- Database migrations (Drizzle + Alembic)
+- Type checking, linting, testing
+- Evals and E2E tests
+- Common issues and debugging
 
 ## License
 

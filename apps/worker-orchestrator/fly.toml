@@ -1,0 +1,17 @@
+app = "jobblitz-orchestrator"
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+
+[processes]
+  app = "bun dist/index.js"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "512mb"
+
+# No http_service — this is a background worker

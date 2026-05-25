@@ -94,6 +94,7 @@ class ProfileCreate(BaseModel):
     linkedin_url: str | None = None
     github_url: str | None = None
     ai_summary: str | None = None
+    onboarding_step: int | None = None
 
 
 class ProfileResponse(ProfileCreate):
@@ -480,3 +481,26 @@ class StandardRunResponse(BaseModel):
     status: str
     events: list[dict] = []
     error: str | None = None
+
+
+# ── Notification Preferences ──────────────────────────────────────────────────
+class NotificationPreferenceCreate(BaseModel):
+    email_notifications: bool | None = True
+    digest_frequency: str | None = Field(None, pattern="^(daily|weekly|none)$")
+    follow_up_enabled: bool | None = True
+    application_updates: bool | None = True
+    marketing: bool | None = False
+
+
+class NotificationPreferenceResponse(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    email_notifications: bool
+    digest_frequency: str
+    follow_up_enabled: bool
+    application_updates: bool
+    marketing: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}

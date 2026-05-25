@@ -32,3 +32,5 @@ perplexityai==0.1.0
 deep-translator==1.11.4
 docx2txt==0.8
 python-docx==1.1.2
+stripe==11.0.0
+resend==2.6.0

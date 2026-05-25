@@ -1,9 +1,39 @@
 version: "3.9"
 
 services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jobblitz}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-jobblitz}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jobblitz}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jobblitz-internal
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jobblitz-internal
+
   backend:
     image: jobblitz/api:${VERSION:-latest}
-    command: infisical run --env=prod -- uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -12,38 +42,120 @@ services:
       retries: 3
     environment:
       - ALLOWED_ORIGINS=https://jobblitz.ai,https://api.jobblitz.ai
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     labels:
       - traefik.enable=true
       - traefik.http.routers.api.rule=Host(`api.jobblitz.ai`)
       - traefik.http.routers.api.tls.certresolver=letsencrypt
       - traefik.http.routers.api.entrypoints=websecure
       - traefik.http.services.api.loadbalancer.server.port=8000
-    depends_on:
-      arq_worker:
-        condition: service_started
+    networks:
+      - jobblitz-internal
 
   arq_worker:
     image: jobblitz/api:${VERSION:-latest}
-    command: infisical run --env=prod -- python -m arq arq_worker.WorkerSettings
+    command: python -m arq arq_worker.WorkerSettings
     restart: unless-stopped
     deploy:
       replicas: 2
     environment:
       - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+    depends_on:
+      - redis
+      - backend
+    networks:
+      - jobblitz-internal
 
+  hono-api:
+    image: jobblitz/hono:${VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - PORT=8000
+      - WEB_URL=https://jobblitz.ai
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.hono.rule=Host(`hono.jobblitz.ai`)
+      - traefik.http.routers.hono.tls.certresolver=letsencrypt
+      - traefik.http.routers.hono.entrypoints=websecure
+      - traefik.http.services.hono.loadbalancer.server.port=8000
+    networks:
+      - jobblitz-internal
+
+  worker-orchestrator:
+    image: jobblitz/orchestrator:${VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+    depends_on:
+      - redis
+      - backend
+    networks:
+      - jobblitz-internal
+
+  worker-browser:
+    image: jobblitz/browser-worker:${VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      - HEADLESS=true
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+      - REDIS_URL=${REDIS_URL}
+    depends_on:
+      - redis
+    networks:
+      - jobblitz-internal
+
+  mcp-gateway:
+    image: jobblitz/mcp-gateway:${VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - MCP_API_KEY=${MCP_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - PORT=4000
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - jobblitz-internal
 
   frontend:
     image: jobblitz/frontend:${VERSION:-latest}
     restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_API_URL=https://api.jobblitz.ai
+    depends_on:
+      - backend
+      - hono-api
     labels:
       - traefik.enable=true
       - traefik.http.routers.frontend.rule=Host(`jobblitz.ai`) || Host(`www.jobblitz.ai`)
       - traefik.http.routers.frontend.tls.certresolver=letsencrypt
       - traefik.http.routers.frontend.entrypoints=websecure
       - traefik.http.services.frontend.loadbalancer.server.port=3000
+    networks:
+      - jobblitz-internal
 
   traefik:
     image: traefik:v3
+    restart: unless-stopped
     command:
       - --providers.docker
       - --providers.docker.exposedbydefault=false
@@ -59,13 +171,25 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./acme.json:/acme.json
-    restart: unless-stopped
+    networks:
+      - jobblitz-internal
 
   infisical:
     image: infisical/infisical:latest
+    restart: unless-stopped
     environment:
       - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}
       - JWT_SIGNUP_SECRET=${INFISICAL_JWT_SECRET}
     ports:
       - "8081:8080"
-    restart: unless-stopped
+    networks:
+      - jobblitz-internal
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  jobblitz-internal:
+    driver: bridge
+    internal: false

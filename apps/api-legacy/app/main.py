@@ -15,6 +15,7 @@ from app.routers import (
     analytics,
     applications,
     auth,
+    billing,
     cover_letters,
     credentials,
     discovery,
@@ -160,4 +161,5 @@ app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(scoring.router, prefix="/api/v1")
 app.include_router(application_plans_router.router, prefix="/api/v1")
 app.include_router(status_sync.router, prefix="/api/v1")
+app.include_router(billing.router, prefix="/api/v1")
 app.include_router(extension_ws_router)

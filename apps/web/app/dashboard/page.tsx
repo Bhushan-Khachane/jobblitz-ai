@@ -3,6 +3,8 @@
 import { ApprovalModal } from "@/components/ApprovalModal";
 import type { ApprovalPayload } from "@/components/ApprovalModal";
 import { LiveActivityFeed } from "@/components/LiveActivityFeed";
+import { OnboardingBanner } from "@/components/OnboardingBanner";
+import { PlanLimitToast } from "@/components/PlanLimitToast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSSE } from "@/hooks/useSSE";
@@ -92,6 +94,7 @@ export default function DashboardPage() {
 
   return (
     <div className="p-6 space-y-6">
+      <OnboardingBanner />
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Dashboard</h1>
         <div className="flex items-center gap-2">
@@ -162,6 +165,8 @@ export default function DashboardPage() {
         onClose={() => setApprovalPayload(null)}
         onAction={handleApprovalAction}
       />
+
+      <PlanLimitToast />
     </div>
   );
 }

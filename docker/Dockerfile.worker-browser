@@ -1,0 +1,43 @@
+# docker/Dockerfile.worker-browser
+# Playwright-enabled browser worker targeting < 800MB
+
+FROM mcr.microsoft.com/playwright/python:v1.44.0-jammy AS base
+
+# Install Bun + Node
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:${PATH}"
+
+# Install Playwright browsers
+RUN bunx playwright@1.44.0 install chromium
+
+# ── Build stage ─────────────────────────────────────────────────────────────
+FROM base AS builder
+
+WORKDIR /app
+COPY package.json bun.lock* ./
+COPY packages ./packages
+COPY apps/worker-browser ./apps/worker-browser
+
+RUN bun install --frozen-lockfile
+RUN bun run --filter=@jobblitz/worker-browser build
+
+# ── Runner stage ────────────────────────────────────────────────────────────
+FROM base AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV HEADLESS=true
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+COPY --from=builder /app/apps/worker-browser/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+
+EXPOSE 8002
+
+CMD ["bun", "dist/index.js"]

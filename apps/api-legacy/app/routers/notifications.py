@@ -9,8 +9,12 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app.config import settings
+from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import User
+from app.models import NotificationPreference, User
+from app.schemas import NotificationPreferenceCreate, NotificationPreferenceResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -47,6 +51,47 @@ async def sse_stream(user_id: str) -> AsyncGenerator[str, None]:
         await pubsub.unsubscribe()
         await pubsub.close()
         await r.aclose()
+
+
+@router.get("/preferences", response_model=NotificationPreferenceResponse | None)
+async def get_my_notifications(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get current user's notification preferences."""
+    result = await db.execute(
+        select(NotificationPreference).where(NotificationPreference.user_id == user.id)
+    )
+    pref = result.scalar_one_or_none()
+    if not pref:
+        return None
+    return pref
+
+
+@router.put("/preferences", response_model=NotificationPreferenceResponse)
+async def upsert_my_notifications(
+    body: NotificationPreferenceCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create or update notification preferences."""
+    result = await db.execute(
+        select(NotificationPreference).where(NotificationPreference.user_id == user.id)
+    )
+    pref = result.scalar_one_or_none()
+
+    data = body.model_dump(exclude_unset=True)
+
+    if pref:
+        for k, v in data.items():
+            setattr(pref, k, v)
+    else:
+        pref = NotificationPreference(user_id=user.id, **data)
+        db.add(pref)
+
+    await db.commit()
+    await db.refresh(pref)
+    return pref
 
 
 @router.get("/stream")

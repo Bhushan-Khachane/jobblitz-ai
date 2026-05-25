@@ -1,4 +1,34 @@
 import type { Context } from "hono";
+import { eq } from "drizzle-orm";
+import { schema } from "@jobblitz/db";
+import type { DatabaseClient } from "@jobblitz/db";
+
+const { subscriptions } = schema;
+
+// ── Plan limits ─────────────────────────────────────────────────────────────
+
+const PLAN_LIMITS: Record<string, number | null> = {
+  free: 10,
+  pro: 50,
+  elite: null, // unlimited
+};
+
+export function getDailyLimitFromPlan(plan: string): number | null {
+  return PLAN_LIMITS[plan] ?? 10;
+}
+
+export async function getUserPlanDailyLimit(
+  db: DatabaseClient,
+  userId: string,
+): Promise<number | null> {
+  const [sub] = await db
+    .select({ plan: subscriptions.plan })
+    .from(subscriptions)
+    .where(eq(subscriptions.userId, userId))
+    .limit(1);
+
+  return getDailyLimitFromPlan(sub?.plan ?? "free");
+}
 
 // ── Application rate limit (DB-backed) ──────────────────────────────────────
 

@@ -1,6 +1,7 @@
 import { sessionManager } from "./session";
 import { artifacts } from "./artifacts";
 import { detectAts, type ApplyPayload, classifyError, createStagehandSession } from "@jobblitz/browser";
+import type { Page } from "playwright";
 
 export interface NavigatePayload {
   sessionId: string;
@@ -134,21 +135,16 @@ export async function applyWithAdapter(payload: ApplyPayloadExtended): Promise<B
 
   let session;
   try {
-    // Use existing session if sessionId provided, otherwise create a new Stagehand session
-    const existingSession = payload.sessionId ? sessionManager.getSession(payload.sessionId) : undefined;
-    if (existingSession) {
-      session = { stagehand: existingSession.stagehand, page: existingSession.page, cleanup: async () => {} };
-    } else {
-      session = await createStagehandSession({
-        headless: process.env.HEADLESS !== "false",
-      });
-    }
+    // Stagehand adapters require a Stagehand session; existing BrowserSession does not have stagehand
+    session = await createStagehandSession({
+      headless: process.env.HEADLESS !== "false",
+    });
 
     await session.page.goto(payload.applyUrl, { waitUntil: "domcontentloaded", timeoutMs: 20000 });
     await session.page.waitForTimeout(2000);
 
     const result = await withTimeout(
-      adapter.apply(session.stagehand, session.page, payload),
+      adapter.apply(session.stagehand, session.page as unknown as Page, payload),
       ADAPTER_TIMEOUT_MS,
       `Adapter ${adapter.name}`
     );

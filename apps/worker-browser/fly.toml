@@ -1,0 +1,28 @@
+app = "jobblitz-browser-worker"
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  HEADLESS = "true"
+  PLAYWRIGHT_BROWSERS_PATH = "/ms-playwright"
+
+[processes]
+  app = "playwright install chromium && bun dist/index.js"
+
+[[vm]]
+  size = "performance-2x"
+  memory = "2gb"
+
+# No http_service — this is a background worker with HTTP endpoints
+[[services]]
+  internal_port = 8002
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 8002
+    handlers = ["http"]

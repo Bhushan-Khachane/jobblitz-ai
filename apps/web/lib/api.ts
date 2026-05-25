@@ -120,11 +120,28 @@ export interface Profile {
   headline?: string | null;
   summary?: string | null;
   skills?: string[] | null;
+  experience?: unknown[] | null;
+  education?: unknown[] | null;
+  certifications?: unknown[] | null;
   experienceYears?: number | null;
+  experienceLevel?: string | null;
   salaryMinLpa?: number | null;
   salaryMaxLpa?: number | null;
+  expectedSalaryLpa?: number | null;
+  currentCtcLpa?: number | null;
   preferredLocations?: string[] | null;
   preferredJobTitles?: string[] | null;
+  targetPortals?: string[] | null;
+  noticePeriodDays?: number | null;
+  remoteOnly?: boolean | null;
+  languages?: string[] | null;
+  jobType?: string | null;
+  workMode?: string | null;
+  portfolioUrl?: string | null;
+  linkedinUrl?: string | null;
+  githubUrl?: string | null;
+  parsedProfile?: unknown | null;
+  onboardingStep?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -273,6 +290,24 @@ export const credentialsAPI = {
 
 export const portalSessionsAPI = {
   list: () => api.get<{ sessions: PortalSession[] }>("/api/portals/sessions").then((r) => r.data),
+};
+
+export interface NotificationPreferences {
+  id: string;
+  userId: string;
+  emailNotifications: boolean;
+  digestFrequency: string;
+  followUpEnabled: boolean;
+  applicationUpdates: boolean;
+  marketing: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const notificationsAPI = {
+  preferences: () => api.get<NotificationPreferences | null>("/api/v1/notifications/preferences").then((r) => r.data),
+  updatePreferences: (data: Partial<NotificationPreferences>) =>
+    api.put<NotificationPreferences>("/api/v1/notifications/preferences", data).then((r) => r.data),
 };
 
 export const discoveryAPI = {

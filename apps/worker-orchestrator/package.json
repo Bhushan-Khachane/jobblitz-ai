@@ -16,6 +16,7 @@
     "@jobblitz/agents": "workspace:*",
     "@jobblitz/core": "workspace:*",
     "@jobblitz/db": "workspace:*",
+    "@jobblitz/observability": "workspace:*",
     "@jobblitz/security": "workspace:*",
     "@jobblitz/types": "workspace:*",
     "@langchain/langgraph": "^1.3.2",

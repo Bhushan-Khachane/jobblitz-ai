@@ -33,8 +33,8 @@ async def shutdown(ctx: dict) -> None:
     await playwright_executor.shutdown()
 
 
-# Import task functions
-from app.workers.tasks import (
+# Import task functions  # noqa: E402
+from app.workers.tasks import (  # noqa: E402
     discover_jobs,
     auto_apply,
     retry_failed,
@@ -44,7 +44,8 @@ from app.workers.tasks import (
     batch_auto_apply,
     run_discovery_scoring,
 )
-from app.workers.tasks.cleanup_sessions import cleanup_sessions
+from app.workers.tasks.cleanup_sessions import cleanup_sessions  # noqa: E402
+from app.workers.tasks.followup import run_followup_agent, send_daily_digest  # noqa: E402
 
 
 class WorkerSettings:
@@ -60,6 +61,8 @@ class WorkerSettings:
         batch_auto_apply,
         cleanup_sessions,
         run_discovery_scoring,
+        run_followup_agent,
+        send_daily_digest,
     ]
 
     cron_jobs = [
@@ -69,6 +72,8 @@ class WorkerSettings:
         cron(cleanup_old_listings, hour=2, minute=0),                                        # Daily 2am
         cron(check_application_statuses, hour=3, minute=0),                                 # Daily 3am
         cron(cleanup_sessions, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),     # Every 5 minutes
+        cron(run_followup_agent, hour=10, minute=0),                                         # Daily 10am
+        cron(send_daily_digest, hour=9, minute=0),                                          # Daily 9am
     ]
 
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
