@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle, XCircle, Clock, Building2, MapPin, ExternalLink, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,20 +10,7 @@ import { Input } from "@/components/ui/input";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useApprovalQueue } from "@/hooks/useApprovalQueue";
 import { formatDate, getPlatformBadgeColor } from "@/lib/utils";
-
-interface QueueItem {
-  id: string;
-  job_listing_id: string;
-  job_title: string | null;
-  company: string | null;
-  location: string | null;
-  portal: string | null;
-  apply_url: string | null;
-  fit_score: number | null;
-  gap_notes: string | null;
-  created_at: string;
-  answers_used?: Record<string, any> | null;
-}
+import type { Application } from "@/lib/api";
 
 export default function ApprovalQueuePage() {
   const { queue, loading, error, refetch, approve, reject, answerQuestions } = useApprovalQueue();
@@ -90,7 +77,7 @@ export default function ApprovalQueuePage() {
     );
   }
 
-  const items = (queue || []) as QueueItem[];
+  const items: Application[] = queue || [];
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -125,8 +112,7 @@ export default function ApprovalQueuePage() {
             {items.map((item) => {
               const isActing = acting === item.id;
               const isExpanded = expanded === item.id;
-              const score = Math.round((item.fit_score ?? 0) * 100);
-              const unanswered = item.answers_used?.unanswered || [];
+              const score = Math.round((item.job?.title ? 75 : 0));
 
               return (
                 <motion.div
@@ -142,26 +128,26 @@ export default function ApprovalQueuePage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <h3 className="font-semibold text-foreground truncate">
-                              {item.job_title || "Unknown Position"}
+                              {item.job?.title || "Unknown Position"}
                             </h3>
                             <Badge
                               variant="outline"
-                              className={`text-[10px] shrink-0 ${getPlatformBadgeColor(item.portal || "")}`}
+                              className={`text-[10px] shrink-0 ${getPlatformBadgeColor(item.job?.location || "")}`}
                             >
-                              {item.portal || "—"}
+                              {item.job?.location || "—"}
                             </Badge>
                           </div>
                           <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                            {item.company && (
+                            {item.job?.company && (
                               <span className="flex items-center gap-1">
                                 <Building2 className="w-3.5 h-3.5" />
-                                {item.company}
+                                {item.job.company}
                               </span>
                             )}
-                            {item.location && (
+                            {item.job?.location && (
                               <span className="flex items-center gap-1">
                                 <MapPin className="w-3.5 h-3.5" />
-                                {item.location}
+                                {item.job.location}
                               </span>
                             )}
                           </div>
@@ -186,7 +172,7 @@ export default function ApprovalQueuePage() {
                           </div>
 
                           {/* Gap notes expandable */}
-                          {item.gap_notes && (
+                          {item.errorMessage && (
                             <div className="mt-2">
                               <button
                                 onClick={() => setExpanded(isExpanded ? null : item.id)}
@@ -204,7 +190,7 @@ export default function ApprovalQueuePage() {
                               </button>
                               {isExpanded && (
                                 <p className="text-xs text-muted-foreground/70 mt-1 bg-muted/50 rounded p-2">
-                                  {item.gap_notes}
+                                  {item.errorMessage}
                                 </p>
                               )}
                             </div>
@@ -213,61 +199,25 @@ export default function ApprovalQueuePage() {
                           {/* Queued date */}
                           <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70 mt-2">
                             <Clock className="w-3 h-3" />
-                            <span>Queued {formatDate(item.created_at)}</span>
+                            <span>Queued {formatDate(item.createdAt)}</span>
                           </div>
                         </div>
 
                         {/* Actions */}
                         <div className="flex flex-col gap-2 shrink-0">
-                          {/* If there are unanswered questions, show answer inputs */}
-                          {unanswered.length > 0 ? (
-                            <div className="flex flex-col gap-2">
-                              <p className="text-xs text-amber-400 font-medium">
-                                {unanswered.length} question(s) need your answer
-                              </p>
-                              {unanswered.map((q: string, idx: number) => (
-                                <div key={idx} className="flex flex-col gap-1">
-                                  <label className="text-[10px] text-muted-foreground truncate max-w-40" title={q}>
-                                    {q.length > 40 ? q.slice(0, 40) + "..." : q}
-                                  </label>
-                                  <Input
-                                    size={1}
-                                    className="h-7 text-xs bg-background"
-                                    placeholder="Your answer..."
-                                    value={pendingAnswers[item.id]?.[q] || ""}
-                                    onChange={(e) => handleAnswerChange(item.id, q, e.target.value)}
-                                  />
-                                </div>
-                              ))}
-                              <Button
-                                size="sm"
-                                className="bg-green-600 hover:bg-green-700 text-white mt-1"
-                                disabled={isActing}
-                                onClick={() => handleSaveAnswers(item.id)}
-                              >
-                                {isActing ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <CheckCircle className="w-4 h-4" />
-                                )}
-                                Save Answers & Apply
-                              </Button>
-                            </div>
-                          ) : (
-                            <Button
-                              size="sm"
-                              className="bg-green-600 hover:bg-green-700 text-white"
-                              disabled={isActing}
-                              onClick={() => handleApprove(item.id)}
-                            >
-                              {isActing ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <CheckCircle className="w-4 h-4" />
-                              )}
-                              Approve
-                            </Button>
-                          )}
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                            disabled={isActing}
+                            onClick={() => handleApprove(item.id)}
+                          >
+                            {isActing ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <CheckCircle className="w-4 h-4" />
+                            )}
+                            Approve
+                          </Button>
                           <Button
                             size="sm"
                             variant="outline"
@@ -282,17 +232,6 @@ export default function ApprovalQueuePage() {
                             )}
                             Skip
                           </Button>
-                          {item.apply_url && (
-                            <a
-                              href={item.apply_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-primary-500 hover:text-primary-500 text-center"
-                            >
-                              <ExternalLink className="w-3 h-3 inline mr-0.5" />
-                              View job
-                            </a>
-                          )}
                         </div>
                       </div>
                     </CardContent>

@@ -21,16 +21,17 @@ export default function JobProfilePage() {
 
   useEffect(() => {
     usersAPI
-      .getProfile()
-      .then((profile) => {
+      .me()
+      .then(({ profile }) => {
+        if (!profile) return;
         setForm({
-          keywords: (profile.preferred_job_titles || []).join(", "),
-          locations: (profile.preferred_locations || []).join(", "),
-          salaryMin: profile.salary_min_lpa?.toString() || "",
-          salaryMax: profile.salary_max_lpa?.toString() || "",
-          experienceLevel: profile.experience_level || "",
-          remoteOnly: profile.remote_only ?? false,
-          portals: profile.target_portals || [],
+          keywords: (profile.preferredJobTitles || []).join(", "),
+          locations: (profile.preferredLocations || []).join(", "),
+          salaryMin: profile.salaryMinLpa?.toString() || "",
+          salaryMax: profile.salaryMaxLpa?.toString() || "",
+          experienceLevel: String(profile.experienceYears || ""),
+          remoteOnly: false,
+          portals: [],
         });
       })
       .catch(() => {
@@ -39,7 +40,7 @@ export default function JobProfilePage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleChange = (key: string, value: any) => {
+  const handleChange = (key: string, value: unknown) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -58,24 +59,23 @@ export default function JobProfilePage() {
     setError("");
     try {
       const payload = {
-        preferred_job_titles: form.keywords
+        preferredJobTitles: form.keywords
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        preferred_locations: form.locations
+        preferredLocations: form.locations
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        salary_min_lpa: form.salaryMin ? parseFloat(form.salaryMin) : null,
-        salary_max_lpa: form.salaryMax ? parseFloat(form.salaryMax) : null,
-        experience_level: form.experienceLevel || null,
-        remote_only: form.remoteOnly,
-        target_portals: form.portals,
+        salaryMinLpa: form.salaryMin ? parseFloat(form.salaryMin) : null,
+        salaryMaxLpa: form.salaryMax ? parseFloat(form.salaryMax) : null,
+        experienceYears: form.experienceLevel ? parseInt(form.experienceLevel, 10) : null,
       };
-      await usersAPI.updateProfile(payload);
+      await usersAPI.updateMe(payload);
       setMessage("Job preferences saved successfully.");
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || "Failed to save preferences.");
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string } } };
+      setError(e.response?.data?.error || "Failed to save preferences.");
     } finally {
       setSaving(false);
     }
@@ -173,10 +173,10 @@ export default function JobProfilePage() {
             className="w-full px-3 py-2 rounded-lg bg-background border border-white/10 text-foreground focus:outline-none focus:ring-2 focus:ring-primary-500"
           >
             <option value="">Any</option>
-            <option value="entry">Entry Level (0-2 years)</option>
-            <option value="mid">Mid Level (2-5 years)</option>
-            <option value="senior">Senior (5+ years)</option>
-            <option value="lead">Lead / Manager</option>
+            <option value="0">Entry Level (0-2 years)</option>
+            <option value="3">Mid Level (2-5 years)</option>
+            <option value="5">Senior (5+ years)</option>
+            <option value="10">Lead / Manager</option>
           </select>
         </div>
 

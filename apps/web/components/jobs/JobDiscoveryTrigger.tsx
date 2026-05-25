@@ -18,7 +18,7 @@ export default function JobDiscoveryTrigger({ onDiscover }: Props) {
     setMessage("");
     try {
       const res = await jobsAPI.discover();
-      setMessage(`Discovery started! Task: ${res.task_id}. Estimated: ${res.estimated_seconds}s`);
+      setMessage(`Discovery started! Task: ${res.taskId}. Estimated: ${res.estimatedSeconds}s`);
       setTimeout(() => {
         onDiscover();
       }, 3000);

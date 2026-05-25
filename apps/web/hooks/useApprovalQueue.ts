@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { applicationsAPI } from "@/lib/api";
-import type { Application } from "@/hooks/useApplications";
+import { applicationsAPI, type Application } from "@/lib/api";
 
 export function useApprovalQueue() {
   const [queue, setQueue] = useState<Application[]>([]);
@@ -15,8 +14,9 @@ export function useApprovalQueue() {
     try {
       const data = await applicationsAPI.approvalQueue();
       setQueue(data);
-    } catch (e: any) {
-      setError(e.response?.data?.detail || "Failed to load approval queue");
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string; detail?: string } } };
+      setError(err.response?.data?.error || err.response?.data?.detail || "Failed to load approval queue");
     } finally {
       setLoading(false);
     }

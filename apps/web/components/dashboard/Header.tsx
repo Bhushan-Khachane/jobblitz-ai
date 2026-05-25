@@ -14,8 +14,8 @@ import { useAuth } from "@/hooks/useAuth";
 
 export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user, logout } = useAuth();
-  const initials = user?.full_name
-    ? user.full_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+  const initials = user?.name
+    ? user.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
     : "U";
 
   return (
@@ -50,7 +50,7 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
                   <AvatarFallback className="text-xs">{initials}</AvatarFallback>
                 </Avatar>
                 <span className="hidden sm:block text-sm font-medium text-foreground">
-                  {user?.full_name || "User"}
+                  {user?.name || "User"}
                 </span>
               </button>
             </DropdownMenuTrigger>

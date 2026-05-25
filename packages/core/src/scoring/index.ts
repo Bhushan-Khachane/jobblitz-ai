@@ -22,7 +22,7 @@ export function computeMatchScore(job: Job, profile: Profile): MatchScore {
 
   const matched: string[] = [];
   const missing: string[] = [];
-  for (const skill of jobSkills) {
+  for (const skill of Array.from(jobSkills)) {
     if (profileSkills.has(skill)) {
       matched.push(skill);
     } else {

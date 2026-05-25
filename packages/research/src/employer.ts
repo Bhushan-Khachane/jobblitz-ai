@@ -40,7 +40,7 @@ function extractTechStack(text: string): string[] {
     "GraphQL", "REST", "gRPC", "Microservices", "Serverless",
   ];
   const found = common.filter((tech) => new RegExp(`\\b${tech}\\b`, "i").test(text));
-  return [...new Set(found)];
+  return Array.from(new Set(found));
 }
 
 function extractField(text: string, regex: RegExp): string | undefined {

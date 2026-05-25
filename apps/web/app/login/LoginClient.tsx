@@ -37,23 +37,15 @@ export default function LoginClient() {
     setError("");
     setLoading(true);
     try {
-      const tokens = await authAPI.login(data.email, data.password);
-      localStorage.setItem("jb_access_token", tokens.access_token);
-      localStorage.setItem("jb_refresh_token", tokens.refresh_token);
+      await authAPI.signIn(data.email, data.password);
       router.push("/dashboard");
-    } catch (e: any) {
-      let message = e.message || "Login failed. Please check your credentials.";
-      const detail = e.response?.data?.detail;
-      if (typeof detail === "string") {
-        message = detail;
-      } else if (Array.isArray(detail) && detail.length > 0) {
-        const messages = detail
-          .filter((item: unknown): item is { msg?: string } => typeof item === "object" && item !== null)
-          .map((item: { msg?: string }) => item.msg)
-          .filter((m: string | undefined): m is string => !!m);
-        message = messages.length > 0 ? messages.join(" ") : JSON.stringify(detail);
-      } else if (detail !== undefined) {
-        message = JSON.stringify(detail);
+    } catch (e: unknown) {
+      let message = "Login failed. Please check your credentials.";
+      if (e instanceof Error && "response" in e) {
+        const errData = (e as { response?: { data?: { error?: string; message?: string } } }).response?.data;
+        message = errData?.error || errData?.message || message;
+      } else if (e instanceof Error) {
+        message = e.message;
       }
       setError(message);
     } finally {

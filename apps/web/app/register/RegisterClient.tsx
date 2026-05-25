@@ -70,29 +70,15 @@ export default function RegisterClient() {
     setServerError("");
     setLoading(true);
     try {
-      await authAPI.register(
-        data.email,
-        data.password,
-        data.full_name,
-        data.phone || undefined
-      );
+      await authAPI.signUp(data.email, data.password, data.full_name);
       router.push("/onboarding");
     } catch (err: unknown) {
       let msg = "Registration failed. Please try again.";
       if (err instanceof Error && "response" in err) {
-        const detail = (err as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
-        if (typeof detail === "string") {
-          msg = detail;
-        } else if (Array.isArray(detail) && detail.length > 0) {
-          // Pydantic validation error array: extract msg from each object
-          const messages = detail
-            .filter((item): item is { msg?: string } => typeof item === "object" && item !== null)
-            .map((item) => item.msg)
-            .filter((m): m is string => !!m);
-          msg = messages.length > 0 ? messages.join(" ") : JSON.stringify(detail);
-        } else if (detail !== undefined) {
-          msg = JSON.stringify(detail);
-        }
+        const errData = (err as { response?: { data?: { error?: string; message?: string } } }).response?.data;
+        msg = errData?.error || errData?.message || msg;
+      } else if (err instanceof Error) {
+        msg = err.message;
       }
       setServerError(msg);
     } finally {

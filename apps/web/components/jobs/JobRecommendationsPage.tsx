@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import JobRecommendationCard from "./JobRecommendationCard";
 import JobDiscoveryTrigger from "./JobDiscoveryTrigger";
 import { jobsAPI } from "@/lib/api";
-import type { JobRecommendation } from "@/lib/api";
+import type { Job } from "@/lib/api";
 
 const TIERS = [
   { key: "", label: "All", count: 0 },
@@ -16,16 +16,16 @@ const TIERS = [
 ];
 
 const SORTS = [
-  { key: "match_score", label: "Match Score" },
+  { key: "matchScore", label: "Match Score" },
   { key: "salary", label: "Salary" },
   { key: "posted", label: "Posted Date" },
 ];
 
 export default function JobRecommendationsPage() {
-  const [jobs, setJobs] = useState<JobRecommendation[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(false);
   const [tier, setTier] = useState("");
-  const [sort, setSort] = useState("match_score");
+  const [sort, setSort] = useState("matchScore");
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
@@ -34,12 +34,11 @@ export default function JobRecommendationsPage() {
       setLoading(true);
       try {
         const newOffset = reset ? 0 : offset;
-        const params: { tier?: string; limit: number; offset: number; sort: string } = {
+        const params: { status?: string; limit: number; offset: number; sort?: string } = {
           limit: 20,
           offset: newOffset,
-          sort,
         };
-        if (tier) params.tier = tier;
+        if (sort) params.sort = sort;
         const data = await jobsAPI.list(params);
         if (reset) {
           setJobs(data);
@@ -55,7 +54,7 @@ export default function JobRecommendationsPage() {
         setLoading(false);
       }
     },
-    [tier, sort, offset]
+    [sort, offset]
   );
 
   useEffect(() => {
@@ -64,12 +63,12 @@ export default function JobRecommendationsPage() {
   }, [tier, sort]);
 
   const handleDismiss = (jobId: string) => {
-    setJobs((prev) => prev.filter((j) => j.job_id !== jobId));
+    setJobs((prev) => prev.filter((j) => j.id !== jobId));
   };
 
   const handleApply = (jobId: string) => {
     setJobs((prev) =>
-      prev.map((j) => (j.job_id === jobId ? { ...j, status: "queued" } : j))
+      prev.map((j) => (j.id === jobId ? { ...j, status: "queued" } : j))
     );
   };
 
@@ -82,12 +81,12 @@ export default function JobRecommendationsPage() {
     const rows = [
       ["Role", "Company", "Location", "Score", "Tier", "Apply Link"],
       ...jobs.map((j) => [
-        j.role || "",
+        j.title || "",
         j.company || "",
         j.location || "",
-        String(j.match_score_pct),
-        j.priority_tier || "",
-        j.apply_link || "",
+        String(j.matchScore ?? 0),
+        j.matchScore && j.matchScore >= 90 ? "APPLY_NOW" : j.matchScore && j.matchScore >= 75 ? "STRONG_FIT" : "CONSIDER",
+        j.applyUrl || "",
       ]),
     ];
     const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
@@ -170,7 +169,7 @@ export default function JobRecommendationsPage() {
         <div className="text-center py-20">
           <p className="text-white/30 text-sm">No job recommendations yet.</p>
           <p className="text-white/20 text-xs mt-1">
-            Click "Find Best Jobs" to start discovery.
+            Click &quot;Find Best Jobs&quot; to start discovery.
           </p>
         </div>
       )}

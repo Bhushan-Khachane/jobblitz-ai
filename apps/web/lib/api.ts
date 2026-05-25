@@ -3,20 +3,9 @@ import axios, { type AxiosInstance, type AxiosResponse } from "axios";
 // ── Axios instance ──────────────────────────────────────────────────────────
 
 const api: AxiosInstance = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1",
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
   headers: { "Content-Type": "application/json" },
-});
-
-// ── Request interceptor: attach JWT ─────────────────────────────────────────
-
-api.interceptors.request.use((config) => {
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("jb_access_token");
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-  }
-  return config;
+  withCredentials: true,
 });
 
 // ── Response interceptor: handle 401 ────────────────────────────────────────
@@ -25,380 +14,285 @@ api.interceptors.response.use(
   (response: AxiosResponse) => response,
   (error) => {
     if (error.response?.status === 401 && typeof window !== "undefined") {
-      localStorage.removeItem("jb_access_token");
-      localStorage.removeItem("jb_refresh_token");
       window.location.href = "/login";
     }
     return Promise.reject(error);
   }
 );
 
-// ── Response shapes ─────────────────────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────────────────────────
 
-interface AuthTokens {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-}
-
-interface User {
+export interface User {
   id: string;
   email: string;
-  full_name: string;
-  phone: string | null;
-  location: string | null;
-  is_active: boolean;
-  application_mode: string;
-  daily_apply_limit: number;
-  plan: string;
-}
-
-interface Profile {
-  id: string;
-  user_id: string;
-  headline: string | null;
-  summary: string | null;
-  skills: string[] | null;
-  experience: Record<string, unknown>[] | null;
-  education: Record<string, unknown>[] | null;
-  certifications: Record<string, unknown>[] | null;
-  preferred_job_titles: string[] | null;
-  preferred_locations: string[] | null;
-  expected_salary_lpa: number | null;
-  salary_min_lpa: number | null;
-  salary_max_lpa: number | null;
-  experience_level: string | null;
-  remote_only: boolean;
-  target_portals: string[] | null;
-  notice_period_days: number | null;
-  current_ctc_lpa: number | null;
-  current_fixed_lpa: number | null;
-  current_variable_lpa: number | null;
-  languages: string[] | null;
-  job_type: string | null;
-  work_mode: string | null;
-  portfolio_url: string | null;
-  linkedin_url: string | null;
-  github_url: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface Resume {
-  id: string;
-  title: string;
-  is_default: boolean;
-  created_at: string;
-}
-
-interface JobSearch {
-  id: string;
   name: string;
-  platform: string;
-  keywords: string;
-  location: string | null;
-  experience_level: string | null;
-  job_type: string | null;
-  remote_only: boolean;
-  salary_min_lpa: number | null;
-  salary_max_lpa: number | null;
-  is_active: boolean;
-  last_run_at: string | null;
-  created_at: string;
+  image?: string | null;
+  emailVerified: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-interface Application {
+export interface Session {
   id: string;
-  job_listing_id: string;
-  resume_id: string | null;
-  status: string;
-  approval_status: string | null;
-  cover_letter: string | null;
-  error_message: string | null;
-  screenshot_path: string | null;
-  retry_count: number;
-  applied_at: string | null;
-  created_at: string;
-  // Enriched fields from approval queue endpoint
-  job_title?: string | null;
-  company?: string | null;
+  userId: string;
+  token: string;
+  expiresAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+  user: User;
+}
+
+export interface Job {
+  id: string;
+  userId: string;
+  platform: string;
+  externalJobId?: string | null;
+  title: string;
+  company: string;
   location?: string | null;
-  apply_url?: string | null;
-  fit_score?: number | null;
-  gap_notes?: string | null;
-  portal?: string | null;
+  description?: string | null;
+  requirements?: string[] | null;
+  responsibilities?: string[] | null;
+  skillsRequired?: string[] | null;
+  experienceLevel?: string | null;
+  yearsExperienceMin?: number | null;
+  yearsExperienceMax?: number | null;
+  salaryMinLpa?: number | null;
+  salaryMaxLpa?: number | null;
+  jobType?: string | null;
+  remotePolicy?: string | null;
+  applyUrl?: string | null;
+  postedDate?: string | null;
+  status: string;
+  matchScore?: number | null;
+  matchExplanation?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
-interface AnalyticsOverview {
-  total_applications: number;
-  total_jobs_discovered: number;
-  counts_by_status: { status: string; count: number }[];
-  success_rate: number;
-}
-
-interface DailyStat {
-  date: string;
-  applications: number;
-  discoveries: number;
-}
-
-interface CoverLetter {
-  cover_letter: string;
-}
-
-interface Credential {
+export interface Application {
   id: string;
-  platform: string;
-  username: string;
-  created_at: string;
+  userId: string;
+  jobId: string;
+  resumeId?: string | null;
+  coverLetterId?: string | null;
+  status: string;
+  approvalStatus?: string | null;
+  errorMessage?: string | null;
+  retryCount: number;
+  appliedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  job: {
+    id: string;
+    title: string;
+    company: string;
+    location?: string | null;
+  };
 }
 
-interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  page_size: number;
+export interface Approval {
+  id: string;
+  status: string;
+  fitScore?: number | null;
+  reason?: string | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  job: {
+    id: string;
+    title: string;
+    company: string;
+    location?: string | null;
+  };
 }
 
-// ── Auth API ────────────────────────────────────────────────────────────────
+export interface DashboardStats {
+  totalJobs: number;
+  totalApplications: number;
+  pendingApprovals: number;
+  avgMatchScore: number;
+}
+
+export interface Profile {
+  id: string;
+  userId: string;
+  headline?: string | null;
+  summary?: string | null;
+  skills?: string[] | null;
+  experienceYears?: number | null;
+  salaryMinLpa?: number | null;
+  salaryMaxLpa?: number | null;
+  preferredLocations?: string[] | null;
+  preferredJobTitles?: string[] | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Auth API (Better Auth) ──────────────────────────────────────────────────
 
 export const authAPI = {
-  login: (email: string, password: string) =>
-    api.post<AuthTokens>("/auth/login", { email, password }).then((r) => r.data),
+  signIn: (email: string, password: string) =>
+    api.post("/api/auth/sign-in/email", { email, password }).then((r) => r.data),
 
-  register: (email: string, password: string, full_name: string, phone?: string) =>
-    api.post<AuthTokens>("/auth/register", { email, password, full_name, phone }).then((r) => r.data),
+  signUp: (email: string, password: string, name: string) =>
+    api.post("/api/auth/sign-up/email", { email, password, name }).then((r) => r.data),
 
-  refresh: (refresh_token: string) =>
-    api.post<AuthTokens>("/auth/refresh", { refresh_token }).then((r) => r.data),
+  signOut: () => api.post("/api/auth/sign-out").then((r) => r.data),
 
-  me: () => api.get<User>("/auth/me").then((r) => r.data),
+  session: () => api.get<{ session: Session | null; user: User | null }>("/api/auth/session").then((r) => r.data),
 };
 
-// ── Resumes API ─────────────────────────────────────────────────────────────
+// ── Jobs API ────────────────────────────────────────────────────────────────
 
-export const resumesAPI = {
-  list: () => api.get<Resume[]>("/resumes/").then((r) => r.data),
+export const jobsAPI = {
+  list: (params?: { status?: string; search?: string; limit?: number; offset?: number }) =>
+    api.get<Job[]>("/api/jobs", { params }).then((r) => r.data),
 
-  upload: (file: File, title?: string, is_default?: boolean) => {
-    const form = new FormData();
-    form.append("file", file);
-    if (title) form.append("title", title);
-    if (is_default != null) form.append("is_default", String(is_default));
-    return api.post<Resume>("/resumes/upload", form, {
-      headers: { "Content-Type": "multipart/form-data" },
-    }).then((r) => r.data);
-  },
+  getById: (id: string) => api.get<Job>(`/api/jobs/${id}`).then((r) => r.data),
 
-  setDefault: (id: string) =>
-    api.put<Resume>(`/resumes/${id}`, { is_default: true }).then((r) => r.data),
+  create: (data: Omit<Job, "id" | "userId" | "status" | "matchScore" | "matchExplanation" | "createdAt" | "updatedAt">) =>
+    api.post<Job>("/api/jobs", data).then((r) => r.data),
 
-  delete: (id: string) =>
-    api.delete(`/resumes/${id}`).then((r) => r.data),
+  update: (id: string, data: Partial<Job>) =>
+    api.patch<Job>(`/api/jobs/${id}`, data).then((r) => r.data),
+
+  delete: (id: string) => api.delete(`/api/jobs/${id}`).then((r) => r.data),
+
+  score: (id: string) => api.post<{ fitScore: number; decision: string; dimensions: Record<string, unknown> }>(`/api/jobs/${id}/score`).then((r) => r.data),
+
+  discover: () =>
+    api.post<{ taskId: string; estimatedSeconds: number }>("/api/jobs/discover").then((r) => r.data),
+
+  apply: (jobId: string) =>
+    api.post<{ queued: boolean; position: number }>(`/api/jobs/${jobId}/apply`).then((r) => r.data),
+
+  dismiss: (jobId: string) =>
+    api.delete(`/api/jobs/${jobId}`).then((r) => r.data),
 };
 
-// ── Job Search API ──────────────────────────────────────────────────────────
-
-export const jobSearchAPI = {
-  list: () => api.get<JobSearch[]>("/job-searches/").then((r) => r.data),
-
-  create: (data: Omit<JobSearch, "id" | "created_at" | "last_run_at" | "is_active">) =>
-    api.post<JobSearch>("/job-searches/", data).then((r) => r.data),
-
-  update: (id: string, data: Partial<JobSearch>) =>
-    api.put<JobSearch>(`/job-searches/${id}`, data).then((r) => r.data),
-
-  delete: (id: string) =>
-    api.delete(`/job-searches/${id}`).then((r) => r.data),
-
-  toggle: (id: string, currentState: boolean) =>
-    api.put<JobSearch>(`/job-searches/${id}`, { is_active: !currentState }).then((r) => r.data),
-
-  run: (id: string) =>
-    api.post<{ run_id: string; status: string; message: string }>(
-      `/job-searches/${id}/run`
-    ).then((r) => r.data),
-};
-
-// ── Discovery API ───────────────────────────────────────────────────────────
-
-export const discoveryAPI = {
-  run: (searchProfile: {
-    keywords: string;
-    location?: string;
-    portal?: string;
-    years_experience?: number;
-    job_age_days?: number;
-  }) =>
-    api.post<{ run_id: string; status: string; events: unknown[] }>(
-      "/discovery/run",
-      { search_profile: searchProfile }
-    ).then((r) => r.data),
-
-  runDirect: (searchProfile: {
-    keywords: string;
-    location?: string;
-    portal?: string;
-    years_experience?: number;
-    job_age_days?: number;
-  }) =>
-    api.post<{ run_id: string; status: string; events: unknown[] }>(
-      "/discovery/run/direct",
-      { search_profile: searchProfile }
-    ).then((r) => r.data),
-
-  jobLeads: (params?: { portal?: string; page?: number; page_size?: number }) =>
-    api.get<{ items: unknown[]; total: number; page: number }>(
-      "/discovery/job-leads",
-      { params }
-    ).then((r) => r.data),
-
-  runSearch: (searchId: string) =>
-    api.post<{ run_id: string; status: string }>(`/job-searches/${searchId}/run`).then((r) => r.data),
-
-  getRunStatus: (runId: string) =>
-    api.get<{
-      status: string;
-      events?: Record<string, unknown>[];
-      pending_approvals?: number;
-      error?: string | null;
-    }>(`/discovery/run/${runId}/status`).then((r) => r.data),
-
-  approveLead: (leadId: string) =>
-    api.post<{ ok: boolean; decision: string }>(`/discovery/job-leads/${leadId}/decision`, { decision: "approve" }).then((r) => r.data),
-
-  skipLead: (leadId: string) =>
-    api.post<{ ok: boolean; decision: string }>(`/discovery/job-leads/${leadId}/decision`, { decision: "skip" }).then((r) => r.data),
-};
+// Legacy alias for compatibility
+export type JobRecommendation = Job;
 
 // ── Applications API ────────────────────────────────────────────────────────
 
 export const applicationsAPI = {
-  list: (params?: { page?: number; per_page?: number; status?: string }) =>
-    api.get<PaginatedResponse<Application>>("/applications", { params }).then((r) => r.data),
+  list: (params?: { status?: string; limit?: number; offset?: number }) =>
+    api.get<Application[]>("/api/applications", { params }).then((r) => r.data),
 
-  getById: (id: string) =>
-    api.get<Application>(`/applications/${id}`).then((r) => r.data),
+  getById: (id: string) => api.get<Application>(`/api/applications/${id}`).then((r) => r.data),
 
-  updateStatus: (id: string, status: string) =>
-    api.put<Application>(`/applications/${id}/status`, { status }).then((r) => r.data),
+  create: (data: { jobId: string; resumeId?: string; coverLetterId?: string }) =>
+    api.post<Application>("/api/applications", data).then((r) => r.data),
 
-  approvalQueue: () =>
-    api.get<Application[]>("/applications/me/approval-queue").then((r) => r.data),
+  update: (id: string, data: Partial<Application>) =>
+    api.patch<Application>(`/api/applications/${id}`, data).then((r) => r.data),
 
-  approve: (id: string) =>
-    api.post<{ message: string; application_id: string }>(`/applications/${id}/approve`).then((r) => r.data),
+  delete: (id: string) => api.delete(`/api/applications/${id}`).then((r) => r.data),
 
-  reject: (id: string) =>
-    api.post<{ message: string; application_id: string }>(`/applications/${id}/reject`).then((r) => r.data),
-
+  // Legacy compatibility stubs
+  approvalQueue: () => api.get<Application[]>("/api/applications", { params: { status: "pending" } }).then((r) => r.data),
+  approve: (id: string) => api.patch<Application>(`/api/applications/${id}`, { status: "approved" }).then((r) => r.data),
+  reject: (id: string) => api.patch<Application>(`/api/applications/${id}`, { status: "rejected" }).then((r) => r.data),
   answerQuestions: (id: string, answers: { question: string; answer: string }[]) =>
-    api.post<{ message: string; application_id: string; saved: number }>(`/applications/${id}/answer-questions`, { answers }).then((r) => r.data),
+    api.post<{ message: string; application_id: string; saved: number }>(`/api/applications/${id}/answer-questions`, { answers }).then((r) => r.data),
 };
 
-// ── Analytics API ───────────────────────────────────────────────────────────
+// ── Approvals API ───────────────────────────────────────────────────────────
 
-export const analyticsAPI = {
-  overview: () =>
-    api.get<AnalyticsOverview>("/analytics/overview").then((r) => r.data),
+export const approvalsAPI = {
+  list: (params?: { status?: string; limit?: number; offset?: number }) =>
+    api.get<Approval[]>("/api/approvals", { params }).then((r) => r.data),
 
-  dailyStats: (days?: number) =>
-    api.get<DailyStat[]>("/analytics/daily-stats", { params: { days } }).then((r) => r.data),
+  approve: (id: string) => api.post<Approval>(`/api/approvals/${id}/approve`).then((r) => r.data),
+
+  reject: (id: string) => api.post<Approval>(`/api/approvals/${id}/reject`).then((r) => r.data),
 };
 
-// ── Cover Letters API ───────────────────────────────────────────────────────
+// ── Dashboard API ───────────────────────────────────────────────────────────
 
-export const coverLettersAPI = {
-  generate: (data: { job_title: string; company: string; job_description?: string }) =>
-    api.post<CoverLetter>("/cover-letters/generate", data).then((r) => r.data),
-};
-
-// ── Credentials API ─────────────────────────────────────────────────────────
-
-export const credentialsAPI = {
-  create: (data: { platform: string; username: string; password: string }) =>
-    api.post<Credential>("/credentials", data).then((r) => r.data),
-
-  list: () => api.get<Credential[]>("/credentials").then((r) => r.data),
-
-  delete: (id: string) =>
-    api.delete(`/credentials/${id}`).then((r) => r.data),
+export const dashboardAPI = {
+  stats: () => api.get<DashboardStats>("/api/dashboard/stats").then((r) => r.data),
 };
 
 // ── Users API ───────────────────────────────────────────────────────────────
 
 export const usersAPI = {
-  getMe: () => api.get<User>("/users/me").then((r) => r.data),
+  me: () => api.get<{ user: User; profile: Profile | null }>("/api/users/me").then((r) => r.data),
 
-  updateMe: (data: Partial<Pick<User, "full_name" | "phone" | "location">>) =>
-    api.put<User>("/users/me", data).then((r) => r.data),
-
-  getProfile: () => api.get<Profile>("/users/me/profile").then((r) => r.data),
-
-  updateProfile: (data: Record<string, unknown>) =>
-    api.put<Profile>("/users/me/profile", data).then((r) => r.data),
-
-  generateSummary: () =>
-    api.post<Profile>("/users/me/generate-summary").then((r) => r.data),
+  updateMe: (data: Record<string, unknown>) =>
+    api.patch<{ user: User; profile: Profile | null }>("/api/users/me", data).then((r) => r.data),
 };
 
-// ── Portal Sessions API ─────────────────────────────────────────────────────
-
-export const portalSessionsAPI = {
-  list: () =>
-    api.get<{ sessions: { portal: string; status: string; verified: boolean }[] }>("/portal-sessions/").then((r) => r.data),
-};
-
-// ── Default export: raw axios instance ──────────────────────────────────────
-
-// ── Job Recommendations API ─────────────────────────────────────────────────
-
-export interface JobRecommendation {
+export interface JobSearch {
   id: string;
-  job_id: string;
-  company: string | null;
-  role: string | null;
-  location: string | null;
-  job_type: string | null;
-  experience_required: string | null;
-  salary_estimate: string | null;
-  match_score: number;
-  match_score_pct: number;
-  priority_tier: string | null;
-  skill_breakdown: Record<string, unknown> | null;
-  apply_link: string | null;
-  source_portal: string | null;
-  discovered_at: string;
-  status: string;
+  name: string;
+  platform: string;
+  keywords: string;
+  location?: string | null;
+  experienceLevel?: string | null;
+  jobType?: string | null;
+  remoteOnly: boolean;
+  salaryMinLpa?: number | null;
+  salaryMaxLpa?: number | null;
+  isActive: boolean;
+  lastRunAt?: string | null;
+  createdAt: string;
 }
 
-export const jobsAPI = {
-  discover: () =>
-    api.post<{ task_id: string; estimated_seconds: number }>("/jobs/discover").then((r) => r.data),
+export interface Credential {
+  id: string;
+  platform: string;
+  username: string;
+  createdAt: string;
+}
 
-  list: (params?: { tier?: string; limit?: number; offset?: number; sort?: string }) =>
-    api.get<JobRecommendation[]>("/jobs/recommendations", { params }).then((r) => r.data),
+export interface PortalSession {
+  portal: string;
+  status: string;
+  verified: boolean;
+}
 
-  getById: (jobId: string) =>
-    api.get<JobRecommendation>(`/jobs/recommendations/${jobId}`).then((r) => r.data),
+export const jobSearchAPI = {
+  list: () => api.get<JobSearch[]>("/api/searches").then((r) => r.data),
+  create: (data: Omit<JobSearch, "id" | "createdAt" | "lastRunAt" | "isActive">) =>
+    api.post<JobSearch>("/api/searches", data).then((r) => r.data),
+  update: (id: string, data: Partial<JobSearch>) =>
+    api.patch<JobSearch>(`/api/searches/${id}`, data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/api/searches/${id}`).then((r) => r.data),
+  toggle: (id: string, currentState: boolean) =>
+    api.patch<JobSearch>(`/api/searches/${id}`, { isActive: !currentState }).then((r) => r.data),
+};
 
-  apply: (jobId: string) =>
-    api.post<{ queued: boolean; position: number }>(`/jobs/recommendations/${jobId}/apply`).then((r) => r.data),
+export const credentialsAPI = {
+  list: () => api.get<Credential[]>("/api/credentials").then((r) => r.data),
+  create: (data: { platform: string; username: string; password: string }) =>
+    api.post<Credential>("/api/credentials", data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/api/credentials/${id}`).then((r) => r.data),
+};
 
-  dismiss: (jobId: string) =>
-    api.delete(`/jobs/recommendations/${jobId}`).then((r) => r.data),
+export const portalSessionsAPI = {
+  list: () => api.get<{ sessions: PortalSession[] }>("/api/portals/sessions").then((r) => r.data),
+};
 
-  profileSummary: () =>
-    api.get<{
-      headline: string;
-      summary: string;
-      core_skills: string[];
-      experience_years: number;
-      preferred_locations: string[];
-      certifications: string[];
-      salary_min_lpa: number | null;
-      salary_max_lpa: number | null;
-    }>("/jobs/profile/summary").then((r) => r.data),
+export const discoveryAPI = {
+  run: (profile: { keywords: string; location?: string; portal?: string; yearsExperience?: number; jobAgeDays?: number }) =>
+    api.post<{ taskId: string; status: string }>("/api/discovery/run", profile).then((r) => r.data),
+
+  runDirect: (profile: { keywords: string; location?: string; portal?: string; yearsExperience?: number; jobAgeDays?: number }) =>
+    api.post<{ taskId: string; status: string }>("/api/discovery/run-direct", profile).then((r) => r.data),
+
+  jobLeads: (params?: { portal?: string; page?: number; pageSize?: number }) =>
+    api.get<{ items: unknown[]; total: number; page: number }>("/api/discovery/leads", { params }).then((r) => r.data),
+
+  approveLead: (leadId: string) =>
+    api.post<{ ok: boolean; decision: string }>(`/api/discovery/leads/${leadId}/approve`).then((r) => r.data),
+
+  skipLead: (leadId: string) =>
+    api.post<{ ok: boolean; decision: string }>(`/api/discovery/leads/${leadId}/skip`).then((r) => r.data),
+
+  runSearch: (searchId: string) =>
+    api.post<{ taskId: string; status: string }>(`/api/searches/${searchId}/run`).then((r) => r.data),
 };
 
 export default api;

@@ -16,6 +16,17 @@ import {
 import { useRunStatus } from "@/hooks/useRunStatus";
 import { discoveryAPI } from "@/lib/api";
 
+interface Lead {
+  id: string;
+  title: string;
+  company: string;
+  location?: string;
+  experience?: string;
+  fit_score?: number;
+  decision?: string;
+  url?: string;
+}
+
 export default function DiscoveryPage() {
   const [keywords, setKeywords] = useState("Python Developer");
   const [location, setLocation] = useState("Nagpur");
@@ -24,7 +35,7 @@ export default function DiscoveryPage() {
   const [portal, setPortal] = useState("naukri");
   const [loading, setLoading] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
-  const [leads, setLeads] = useState<any[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const { runStatus, isPolling } = useRunStatus(runId);
@@ -43,8 +54,8 @@ export default function DiscoveryPage() {
       leads.length === 0
     ) {
       discoveryAPI
-        .jobLeads({ portal, page: 1, page_size: 20 })
-        .then((res) => setLeads(res.items || []))
+        .jobLeads({ portal, page: 1, pageSize: 20 })
+        .then((res) => setLeads((res.items || []) as Lead[]))
         .catch(() => {
           /* silently fail */
         });
@@ -60,42 +71,42 @@ export default function DiscoveryPage() {
         keywords,
         location,
         portal,
-        years_experience: parseInt(experience) || 2,
-        job_age_days: parseInt(jobAge) || 7,
+        yearsExperience: parseInt(experience) || 2,
+        jobAgeDays: parseInt(jobAge) || 7,
       });
 
-      // If ADK is down, fall back to direct scrape immediately
-      if (!result.run_id || result.status === "error") {
+      // If orchestrator is down, fall back to direct scrape immediately
+      if (!result.taskId || result.status === "error") {
         result = await discoveryAPI.runDirect({
           keywords,
           location,
           portal,
-          years_experience: parseInt(experience) || 2,
-          job_age_days: parseInt(jobAge) || 7,
+          yearsExperience: parseInt(experience) || 2,
+          jobAgeDays: parseInt(jobAge) || 7,
         });
       }
 
       if (result.status === "completed") {
         // Already done — don't start polling, just load leads directly
-        const res = await discoveryAPI.jobLeads({ portal, page: 1, page_size: 20 });
-        setLeads(res.items || []);
+        const res = await discoveryAPI.jobLeads({ portal, page: 1, pageSize: 20 });
+        setLeads((res.items || []) as Lead[]);
         setRunId(null); // don't trigger useRunStatus polling
       } else {
-        setRunId(result.run_id); // only poll if still running
+        setRunId(result.taskId); // only poll if still running
       }
-    } catch (err: any) {
-      // If /run threw (network error / ADK unreachable), try direct fallback
+    } catch (err: unknown) {
+      // If /run threw (network error / orchestrator unreachable), try direct fallback
       try {
         const fallback = await discoveryAPI.runDirect({
           keywords,
           location,
           portal,
-          years_experience: parseInt(experience) || 2,
-          job_age_days: parseInt(jobAge) || 7,
+          yearsExperience: parseInt(experience) || 2,
+          jobAgeDays: parseInt(jobAge) || 7,
         });
         if (fallback.status === "completed") {
-          const res = await discoveryAPI.jobLeads({ portal, page: 1, page_size: 20 });
-          setLeads(res.items || []);
+          const res = await discoveryAPI.jobLeads({ portal, page: 1, pageSize: 20 });
+          setLeads((res.items || []) as Lead[]);
           setRunId(null);
           setError(null);
           return;
@@ -103,7 +114,8 @@ export default function DiscoveryPage() {
       } catch {
         // direct also failed — show original error
       }
-      setError(err.response?.data?.detail || "Discovery failed");
+      const e = err as { response?: { data?: { error?: string; detail?: string } } };
+      setError(e.response?.data?.error || e.response?.data?.detail || "Discovery failed");
     } finally {
       setLoading(false);
     }
@@ -115,8 +127,9 @@ export default function DiscoveryPage() {
       setLeads((prev) =>
         prev.map((l) => (l.id === leadId ? { ...l, decision: "approve" } : l))
       );
-    } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to approve");
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string; detail?: string } } };
+      alert(e.response?.data?.error || e.response?.data?.detail || "Failed to approve");
     }
   };
 
@@ -126,8 +139,9 @@ export default function DiscoveryPage() {
       setLeads((prev) =>
         prev.map((l) => (l.id === leadId ? { ...l, decision: "skip" } : l))
       );
-    } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to skip");
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string; detail?: string } } };
+      alert(e.response?.data?.error || e.response?.data?.detail || "Failed to skip");
     }
   };
 

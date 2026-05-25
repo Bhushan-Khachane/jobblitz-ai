@@ -2,56 +2,38 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import api from "@/lib/api";
+import { authAPI, type User } from "@/lib/api";
 
 // ── Types ───────────────────────────────────────────────────────────────────
-
-interface User {
-  id: string;
-  email: string;
-  full_name: string;
-  phone: string | null;
-  location: string | null;
-  is_active: boolean;
-  application_mode: string;
-  daily_apply_limit: number;
-  plan: string;
-}
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
-  register: (email: string, password: string, full_name: string, phone?: string) => Promise<void>;
+  logout: () => Promise<void>;
+  register: (email: string, password: string, name: string) => Promise<void>;
 }
 
 // ── Context ─────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-// ── Provider ────────────────────────────────────────────────────────────────
+// ── Provider ──────────────────────────────────────────────────────────────
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
-  // On mount: validate existing token
+  // On mount: validate existing session
   useEffect(() => {
     const init = async () => {
-      const token = typeof window !== "undefined" ? localStorage.getItem("jb_access_token") : null;
-      if (!token) {
-        setIsLoading(false);
-        return;
-      }
       try {
-        const { data } = await api.get<User>("/auth/me");
-        setUser(data);
+        const { user: u } = await authAPI.session();
+        setUser(u);
       } catch {
-        localStorage.removeItem("jb_access_token");
-        localStorage.removeItem("jb_refresh_token");
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -61,35 +43,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Login
   const login = useCallback(async (email: string, password: string) => {
-    const { data: tokens } = await api.post<{ access_token: string; refresh_token: string }>(
-      "/auth/login",
-      { email, password }
-    );
-    localStorage.setItem("jb_access_token", tokens.access_token);
-    localStorage.setItem("jb_refresh_token", tokens.refresh_token);
-    const { data: me } = await api.get<User>("/auth/me");
-    setUser(me);
+    await authAPI.signIn(email, password);
+    const { user: u } = await authAPI.session();
+    setUser(u);
     router.push("/dashboard");
   }, [router]);
 
   // Logout
-  const logout = useCallback(() => {
-    localStorage.removeItem("jb_access_token");
-    localStorage.removeItem("jb_refresh_token");
+  const logout = useCallback(async () => {
+    await authAPI.signOut();
     setUser(null);
     router.push("/login");
   }, [router]);
 
   // Register
-  const register = useCallback(async (email: string, password: string, full_name: string, phone?: string) => {
-    const { data: tokens } = await api.post<{ access_token: string; refresh_token: string }>(
-      "/auth/register",
-      { email, password, full_name, phone }
-    );
-    localStorage.setItem("jb_access_token", tokens.access_token);
-    localStorage.setItem("jb_refresh_token", tokens.refresh_token);
-    const { data: me } = await api.get<User>("/auth/me");
-    setUser(me);
+  const register = useCallback(async (email: string, password: string, name: string) => {
+    await authAPI.signUp(email, password, name);
+    const { user: u } = await authAPI.session();
+    setUser(u);
     router.push("/onboarding");
   }, [router]);
 

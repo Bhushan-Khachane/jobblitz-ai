@@ -17,6 +17,7 @@
     "@jobblitz/db": "workspace:*"
   },
   "devDependencies": {
+    "@types/bun": "latest",
     "typescript": "^5.8.3"
   }
 }

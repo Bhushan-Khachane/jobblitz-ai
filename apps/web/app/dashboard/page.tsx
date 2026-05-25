@@ -3,29 +3,18 @@
 import { useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-
-interface DashboardStats {
-  totalJobs: number;
-  totalApplications: number;
-  pendingApprovals: number;
-  matchScore: number;
-}
+import { dashboardAPI } from "@/lib/api";
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [stats, setStats] = useState<{ totalJobs: number; totalApplications: number; pendingApprovals: number; avgMatchScore: number } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // TODO: Replace with actual tRPC call
-    setTimeout(() => {
-      setStats({
-        totalJobs: 142,
-        totalApplications: 28,
-        pendingApprovals: 5,
-        matchScore: 0.82,
-      });
-      setLoading(false);
-    }, 1000);
+    dashboardAPI.stats()
+      .then((data) => setStats(data))
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load stats"))
+      .finally(() => setLoading(false));
   }, []);
 
   if (loading) {
@@ -34,6 +23,14 @@ export default function DashboardPage() {
         {[...Array(4)].map((_, i) => (
           <Skeleton key={i} className="h-32 w-full" />
         ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <p className="text-red-500">Error: {error}</p>
       </div>
     );
   }
@@ -47,7 +44,7 @@ export default function DashboardPage() {
             <CardTitle>Jobs Discovered</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{stats?.totalJobs}</p>
+            <p className="text-3xl font-bold">{stats?.totalJobs ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
@@ -55,7 +52,7 @@ export default function DashboardPage() {
             <CardTitle>Applications</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{stats?.totalApplications}</p>
+            <p className="text-3xl font-bold">{stats?.totalApplications ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
@@ -63,7 +60,7 @@ export default function DashboardPage() {
             <CardTitle>Pending Approvals</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{stats?.pendingApprovals}</p>
+            <p className="text-3xl font-bold">{stats?.pendingApprovals ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
@@ -71,7 +68,7 @@ export default function DashboardPage() {
             <CardTitle>Avg Match Score</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{Math.round((stats?.matchScore || 0) * 100)}%</p>
+            <p className="text-3xl font-bold">{stats?.avgMatchScore ?? 0}%</p>
           </CardContent>
         </Card>
       </div>

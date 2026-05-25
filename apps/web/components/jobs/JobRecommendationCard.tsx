@@ -4,40 +4,44 @@ import { ExternalLink, X, Briefcase, MapPin, DollarSign, Award } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { jobsAPI } from "@/lib/api";
-import type { JobRecommendation } from "@/lib/api";
+import type { Job } from "@/lib/api";
 
 interface Props {
-  job: JobRecommendation;
+  job: Job;
   onDismiss: (jobId: string) => void;
   onApply: (jobId: string) => void;
 }
 
-function tierBadge(tier: string | null) {
-  if (!tier) return null;
-  const styles: Record<string, string> = {
-    APPLY_NOW: "bg-red-500/20 text-red-400 border-red-500/30",
-    STRONG_FIT: "bg-green-500/20 text-green-400 border-green-500/30",
-    CONSIDER: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  };
-  const labels: Record<string, string> = {
-    APPLY_NOW: "Apply Now",
-    STRONG_FIT: "Strong Fit",
-    CONSIDER: "Consider",
-  };
+function tierBadge(matchScore: number | null) {
+  if (!matchScore) return null;
+  let tier: string;
+  let style: string;
+  if (matchScore >= 90) {
+    tier = "Apply Now";
+    style = "bg-red-500/20 text-red-400 border-red-500/30";
+  } else if (matchScore >= 75) {
+    tier = "Strong Fit";
+    style = "bg-green-500/20 text-green-400 border-green-500/30";
+  } else {
+    tier = "Consider";
+    style = "bg-amber-500/20 text-amber-400 border-amber-500/30";
+  }
   return (
-    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${styles[tier] || "bg-white/10 text-white/60 border-white/10"}`}>
-      {labels[tier] || tier}
+    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${style}`}>
+      {tier}
     </span>
   );
 }
 
-function scoreColor(score: number) {
+function scoreColor(score: number | null) {
+  if (score == null) return "text-gray-400";
   if (score >= 90) return "text-green-400";
   if (score >= 75) return "text-amber-400";
   return "text-red-400";
 }
 
-function scoreRingColor(score: number) {
+function scoreRingColor(score: number | null) {
+  if (score == null) return "stroke-gray-400";
   if (score >= 90) return "stroke-green-400";
   if (score >= 75) return "stroke-amber-400";
   return "stroke-red-400";
@@ -46,8 +50,8 @@ function scoreRingColor(score: number) {
 export default function JobRecommendationCard({ job, onDismiss, onApply }: Props) {
   const handleApply = async () => {
     try {
-      await jobsAPI.apply(job.job_id);
-      onApply(job.job_id);
+      await jobsAPI.apply(job.id);
+      onApply(job.id);
     } catch {
       alert("Failed to queue application");
     }
@@ -55,16 +59,17 @@ export default function JobRecommendationCard({ job, onDismiss, onApply }: Props
 
   const handleDismiss = async () => {
     try {
-      await jobsAPI.dismiss(job.job_id);
-      onDismiss(job.job_id);
+      await jobsAPI.dismiss(job.id);
+      onDismiss(job.id);
     } catch {
       alert("Failed to dismiss");
     }
   };
 
-  const skills = job.skill_breakdown as Record<string, unknown> | null;
-  const matched = (skills?.matched as string[]) || [];
-  const missing = (skills?.missing as string[]) || [];
+  const explanation = job.matchExplanation as Record<string, unknown> | null;
+  const matched = (explanation?.matched as string[]) || [];
+  const missing = (explanation?.missing as string[]) || [];
+  const score = job.matchScore ?? 0;
 
   return (
     <Card className="relative overflow-hidden border-white/5 hover:border-white/10 transition-colors">
@@ -72,8 +77,8 @@ export default function JobRecommendationCard({ job, onDismiss, onApply }: Props
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-semibold text-white/90 truncate">{job.role || "Untitled Role"}</h3>
-              {tierBadge(job.priority_tier)}
+              <h3 className="font-semibold text-white/90 truncate">{job.title || "Untitled Role"}</h3>
+              {tierBadge(job.matchScore ?? null)}
             </div>
             <p className="text-sm text-white/50 mt-0.5">{job.company || "Unknown Company"}</p>
           </div>
@@ -88,16 +93,16 @@ export default function JobRecommendationCard({ job, onDismiss, onApply }: Props
                   strokeWidth="3"
                 />
                 <path
-                  className={scoreRingColor(job.match_score_pct)}
-                  strokeDasharray={`${job.match_score_pct}, 100`}
+                  className={scoreRingColor(job.matchScore ?? null)}
+                  strokeDasharray={`${score}, 100`}
                   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   fill="none"
                   strokeWidth="3"
                   strokeLinecap="round"
                 />
               </svg>
-              <span className={`absolute text-xs font-bold ${scoreColor(job.match_score_pct)}`}>
-                {job.match_score_pct}
+              <span className={`absolute text-xs font-bold ${scoreColor(job.matchScore ?? null)}`}>
+                {score}
               </span>
             </div>
           </div>
@@ -113,22 +118,22 @@ export default function JobRecommendationCard({ job, onDismiss, onApply }: Props
               {job.location}
             </span>
           )}
-          {job.job_type && (
+          {job.jobType && (
             <span className="flex items-center gap-1">
               <Briefcase className="w-3 h-3" />
-              {job.job_type}
+              {job.jobType}
             </span>
           )}
-          {job.experience_required && (
+          {job.yearsExperienceMin != null && (
             <span className="flex items-center gap-1">
               <Award className="w-3 h-3" />
-              {job.experience_required}
+              {job.yearsExperienceMin}+ years
             </span>
           )}
-          {job.salary_estimate && (
+          {job.salaryMinLpa != null && job.salaryMaxLpa != null && (
             <span className="flex items-center gap-1">
               <DollarSign className="w-3 h-3" />
-              {job.salary_estimate}
+              {job.salaryMinLpa}-{job.salaryMaxLpa} LPA
             </span>
           )}
         </div>
@@ -157,12 +162,12 @@ export default function JobRecommendationCard({ job, onDismiss, onApply }: Props
 
         {/* Actions */}
         <div className="flex items-center gap-2 pt-1">
-          {job.apply_link && (
+          {job.applyUrl && (
             <Button
               size="sm"
               variant="outline"
               className="text-xs gap-1"
-              onClick={() => window.open(job.apply_link!, "_blank")}
+              onClick={() => window.open(job.applyUrl!, "_blank")}
             >
               <ExternalLink className="w-3 h-3" />
               View Job
@@ -183,8 +188,8 @@ export default function JobRecommendationCard({ job, onDismiss, onApply }: Props
         </div>
 
         <p className="text-[10px] text-white/20">
-          Source: {job.source_portal || "unknown"} · Discovered{" "}
-          {new Date(job.discovered_at).toLocaleDateString("en-IN")}
+          Source: {job.platform || "unknown"} · Discovered{" "}
+          {new Date(job.createdAt).toLocaleDateString("en-IN")}
         </p>
       </CardContent>
     </Card>

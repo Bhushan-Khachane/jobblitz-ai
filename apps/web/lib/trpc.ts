@@ -1,15 +1,6 @@
-import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
-import type { AppRouter } from "../../api/src/routers";
+// tRPC client stub — not used in v2.0 (REST API preferred)
+// Re-enable when tRPC server router is wired up
 
-export const trpc = createTRPCProxyClient<AppRouter>({
-  links: [
-    httpBatchLink({
-      url: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/trpc`,
-      headers() {
-        return {
-          "x-trpc-source": "web",
-        };
-      },
-    }),
-  ],
-});
+export const trpc = {
+  // noop proxy to prevent runtime errors
+} as unknown;

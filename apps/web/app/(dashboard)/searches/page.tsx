@@ -11,24 +11,42 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import SearchForm from "@/components/dashboard/SearchForm";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
-import api, { jobSearchAPI, credentialsAPI, portalSessionsAPI, discoveryAPI } from "@/lib/api";
+import { jobSearchAPI, credentialsAPI, portalSessionsAPI, discoveryAPI, type PortalSession } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { useRunStatus } from "@/hooks/useRunStatus";
 
-interface JobSearch {
+interface JobSearchItem {
   id: string;
   name: string;
   platform: string;
   keywords: string;
   location: string | null;
-  experience_level: string | null;
-  job_type: string | null;
-  remote_only: boolean;
-  salary_min_lpa: number | null;
-  salary_max_lpa: number | null;
-  is_active: boolean;
-  last_run_at: string | null;
-  created_at: string;
+  experienceLevel: string | null;
+  jobType: string | null;
+  remoteOnly: boolean;
+  salaryMinLpa: number | null;
+  salaryMaxLpa: number | null;
+  isActive: boolean;
+  lastRunAt: string | null;
+  createdAt: string;
+}
+
+function normalizeSearch(item: { id: string; name: string; platform: string; keywords: string; location?: string | null; experienceLevel?: string | null; jobType?: string | null; remoteOnly?: boolean; salaryMinLpa?: number | null; salaryMaxLpa?: number | null; isActive?: boolean; lastRunAt?: string | null; createdAt: string }): JobSearchItem {
+  return {
+    id: item.id,
+    name: item.name,
+    platform: item.platform,
+    keywords: item.keywords,
+    location: item.location ?? null,
+    experienceLevel: item.experienceLevel ?? null,
+    jobType: item.jobType ?? null,
+    remoteOnly: item.remoteOnly ?? false,
+    salaryMinLpa: item.salaryMinLpa ?? null,
+    salaryMaxLpa: item.salaryMaxLpa ?? null,
+    isActive: item.isActive ?? true,
+    lastRunAt: item.lastRunAt ?? null,
+    createdAt: item.createdAt,
+  };
 }
 
 const platformColors: Record<string, string> = {
@@ -42,10 +60,10 @@ const platformColors: Record<string, string> = {
 };
 
 export default function SearchesPage() {
-  const [searches, setSearches] = useState<JobSearch[]>([]);
+  const [searches, setSearches] = useState<JobSearchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editItem, setEditItem] = useState<JobSearch | null>(null);
+  const [editItem, setEditItem] = useState<JobSearchItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasConnections, setHasConnections] = useState(true);
@@ -72,10 +90,11 @@ export default function SearchesPage() {
   const fetchSearches = useCallback(async () => {
     try {
       const data = await jobSearchAPI.list();
-      setSearches(data || []);
-    } catch (e: any) {
+      setSearches((data || []).map(normalizeSearch));
+    } catch (e: unknown) {
       console.error(e);
-      setError(e.response?.data?.detail || "Failed to load searches");
+      const err = e as { response?: { data?: { error?: string; detail?: string } } };
+      setError(err.response?.data?.error || err.response?.data?.detail || "Failed to load searches");
     } finally {
       setLoading(false);
     }
@@ -95,30 +114,30 @@ export default function SearchesPage() {
         const hasCreds = creds.status === "fulfilled" && (creds.value || []).length > 0;
         const hasPortals =
           portalRes.status === "fulfilled" &&
-          (portalRes.value?.sessions || []).some((s) => s.status === "active" || s.verified);
+          (portalRes.value?.sessions || []).some((s: PortalSession) => s.status === "active" || s.verified);
         setHasConnections(hasCreds || hasPortals);
-      } catch (e: any) {
-        console.error(e);
+      } catch {
         setHasConnections(false);
       }
     };
     loadConnections();
   }, []);
 
-  const handleCreate = async (formData: any) => {
+  const handleCreate = async (formData: Record<string, unknown>) => {
     setSaving(true);
     setError(null);
     try {
       if (editItem) {
         await jobSearchAPI.update(editItem.id, formData);
       } else {
-        await jobSearchAPI.create(formData);
+        await jobSearchAPI.create(formData as never);
       }
       setDialogOpen(false);
       setEditItem(null);
       await fetchSearches();
-    } catch (e: any) {
-      setError(e.response?.data?.detail || e.message || "Failed to save search");
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string; detail?: string } } };
+      setError(err.response?.data?.error || err.response?.data?.detail || "Failed to save search");
     } finally {
       setSaving(false);
     }
@@ -130,20 +149,22 @@ export default function SearchesPage() {
     try {
       await jobSearchAPI.delete(id);
       await fetchSearches();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      setError(e.response?.data?.detail || "Failed to delete");
+      const err = e as { response?: { data?: { error?: string; detail?: string } } };
+      setError(err.response?.data?.error || err.response?.data?.detail || "Failed to delete");
     }
   };
 
-  const handleToggle = async (search: JobSearch) => {
+  const handleToggle = async (search: JobSearchItem) => {
     setError(null);
     try {
-      await jobSearchAPI.toggle(search.id, search.is_active);
+      await jobSearchAPI.toggle(search.id, search.isActive);
       await fetchSearches();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      setError(e.response?.data?.detail || "Failed to toggle search");
+      const err = e as { response?: { data?: { error?: string; detail?: string } } };
+      setError(err.response?.data?.error || err.response?.data?.detail || "Failed to toggle search");
     }
   };
 
@@ -152,7 +173,7 @@ export default function SearchesPage() {
     setDialogOpen(true);
   };
 
-  const openEdit = (s: JobSearch) => {
+  const openEdit = (s: JobSearchItem) => {
     setEditItem(s);
     setDialogOpen(true);
   };
@@ -163,26 +184,24 @@ export default function SearchesPage() {
     setActiveRunId(null);
     try {
       const data = await discoveryAPI.runSearch(id);
-      const runId = data.run_id || null;
+      const taskId = data.taskId || null;
       // Fallback direct-scrape returns immediately with status "completed"
-      if (data.status === "completed" || runId?.startsWith("fallback-")) {
-        const inserted = (data as any).inserted ?? 0;
+      if (data.status === "completed" || taskId?.startsWith("fallback-")) {
         setTriggerMsgs((m) => ({
           ...m,
-          [id]: inserted > 0
-            ? `✅ Discovery complete — ${inserted} new job${inserted === 1 ? "" : "s"} found`
-            : "✅ Discovery complete — no new jobs found (all already in your leads)",
+          [id]: "✅ Discovery complete",
         }));
         setTimeout(() => setTriggerMsgs((m) => ({ ...m, [id]: "" })), 8000);
-      } else if (runId) {
-        setActiveRunId(runId);
+      } else if (taskId) {
+        setActiveRunId(taskId);
         setTriggerMsgs((m) => ({ ...m, [id]: `🔍 Starting discovery...` }));
       } else {
         setTriggerMsgs((m) => ({ ...m, [id]: `✓ Discovery workflow queued!` }));
         setTimeout(() => setTriggerMsgs((m) => ({ ...m, [id]: "" })), 8000);
       }
-    } catch (e: any) {
-      setTriggerMsgs((m) => ({ ...m, [id]: e.response?.data?.detail || "Failed to trigger search" }));
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string; detail?: string } } };
+      setTriggerMsgs((m) => ({ ...m, [id]: err.response?.data?.error || err.response?.data?.detail || "Failed to trigger search" }));
     } finally {
       setRunning(null);
     }
@@ -220,7 +239,7 @@ export default function SearchesPage() {
           <div>
             <p className="font-medium text-amber-400">Auto-apply is not active</p>
             <p className="text-sm text-amber-400 mt-0.5">
-              You haven't linked your LinkedIn or Naukri account yet.{" "}
+              You haven&apos;t linked your LinkedIn or Naukri account yet.{" "}
               <a href="/portals" className="underline font-medium">Connect a portal</a> to enable automatic job applications.
             </p>
           </div>
@@ -250,13 +269,13 @@ export default function SearchesPage() {
                 editItem
                   ? {
                       name: editItem.name,
-                      platform: editItem.platform as any,
+                      platform: editItem.platform as "linkedin" | "naukri" | "shine" | "unstop" | "wellfound" | "internshala",
                       keywords: editItem.keywords,
                       location: editItem.location || "",
-                      experience_level: editItem.experience_level || "",
-                      remote_only: editItem.remote_only,
-                      salary_min_lpa: editItem.salary_min_lpa?.toString() || "",
-                      salary_max_lpa: editItem.salary_max_lpa?.toString() || "",
+                      experience_level: editItem.experienceLevel || "",
+                      remote_only: editItem.remoteOnly,
+                      salary_min_lpa: editItem.salaryMinLpa?.toString() || "",
+                      salary_max_lpa: editItem.salaryMaxLpa?.toString() || "",
                     }
                   : undefined
               }
@@ -294,21 +313,21 @@ export default function SearchesPage() {
                     </p>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       {s.location && <span>📍 {s.location}</span>}
-                      {s.experience_level && <span>💼 {s.experience_level}</span>}
-                      {s.remote_only && <span>🏠 Remote</span>}
-                      {s.salary_min_lpa && <span>💰 ₹{s.salary_min_lpa}–{s.salary_max_lpa || "?"} LPA</span>}
-                      {s.last_run_at && <span>🔄 Last run: {formatDate(s.last_run_at)}</span>}
+                      {s.experienceLevel && <span>💼 {s.experienceLevel}</span>}
+                      {s.remoteOnly && <span>🏠 Remote</span>}
+                      {s.salaryMinLpa && <span>💰 ₹{s.salaryMinLpa}–{s.salaryMaxLpa || "?"} LPA</span>}
+                      {s.lastRunAt && <span>🔄 Last run: {formatDate(s.lastRunAt)}</span>}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2">
-                      <Switch checked={s.is_active} onCheckedChange={() => handleToggle(s)} />
-                      <span className="text-xs text-muted-foreground">{s.is_active ? "Active" : "Paused"}</span>
+                      <Switch checked={s.isActive} onCheckedChange={() => handleToggle(s)} />
+                      <span className="text-xs text-muted-foreground">{s.isActive ? "Active" : "Paused"}</span>
                     </div>
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={running === s.id || !s.is_active}
+                      disabled={running === s.id || !s.isActive}
                       onClick={() => handleTrigger(s.id)}
                       className="text-primary-500 border-primary-500/20 hover:bg-primary-500/10"
                     >

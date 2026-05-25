@@ -1,43 +1,62 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-
-interface ApprovalRequest {
-  id: string;
-  jobTitle: string;
-  company: string;
-  fitScore: number;
-  reason: string;
-}
+import { Skeleton } from "@/components/ui/skeleton";
+import { approvalsAPI, type Approval } from "@/lib/api";
 
 export default function ApprovalsPage() {
-  const [approvals, setApprovals] = useState<ApprovalRequest[]>([
-    {
-      id: "1",
-      jobTitle: "Staff Engineer",
-      company: "BigTech",
-      fitScore: 0.88,
-      reason: "Strong skill match, salary within range, preferred location",
-    },
-    {
-      id: "2",
-      jobTitle: "Platform Engineer",
-      company: "ScaleUp",
-      fitScore: 0.72,
-      reason: "Good match but missing Kubernetes experience",
-    },
-  ]);
+  const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleApprove = (id: string) => {
-    setApprovals((prev) => prev.filter((a) => a.id !== id));
+  useEffect(() => {
+    approvalsAPI.list()
+      .then((data) => setApprovals(data))
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load approvals"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleApprove = async (id: string) => {
+    try {
+      await approvalsAPI.approve(id);
+      setApprovals((prev) => prev.filter((a) => a.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Approve failed");
+    }
   };
 
-  const handleReject = (id: string) => {
-    setApprovals((prev) => prev.filter((a) => a.id !== id));
+  const handleReject = async (id: string) => {
+    try {
+      await approvalsAPI.reject(id);
+      setApprovals((prev) => prev.filter((a) => a.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reject failed");
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="p-6 space-y-6">
+        <Skeleton className="h-10 w-64" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-48 w-full" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <p className="text-red-500">Error: {error}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -49,12 +68,12 @@ export default function ApprovalsPage() {
           {approvals.map((approval) => (
             <Card key={approval.id}>
               <CardHeader>
-                <CardTitle>{approval.jobTitle}</CardTitle>
-                <p className="text-sm text-muted-foreground">{approval.company}</p>
+                <CardTitle>{approval.job.title}</CardTitle>
+                <p className="text-sm text-muted-foreground">{approval.job.company}</p>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Badge>Match: {Math.round(approval.fitScore * 100)}%</Badge>
-                <p className="text-sm">{approval.reason}</p>
+                <Badge>Match: {approval.fitScore ?? 0}%</Badge>
+                {approval.reason && <p className="text-sm">{approval.reason}</p>}
               </CardContent>
               <CardFooter className="flex gap-2">
                 <Button onClick={() => handleApprove(approval.id)} className="flex-1">
