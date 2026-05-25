@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: jobblitz
       POSTGRES_PASSWORD: jobblitz
@@ -29,19 +29,17 @@ services:
       timeout: 5s
       retries: 5
 
-  backend:
-    build: ./backend
+  # ── Legacy Python Services (operational during migration) ───────────────────
+  api-legacy:
+    build: ./apps/api-legacy
     ports:
-      - "8000:8000"
+      - "8004:8000"
     env_file:
-      - ./backend/.env
+      - ./.env
     environment:
       - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001
       - NEKO_PUBLIC_HOST=localhost
-      - ADK_ORCHESTRATOR_URL=http://adk-orchestrator:8001
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
-      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN}
-      - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY}
+      - ADK_ORCHESTRATOR_URL=http://orchestrator-legacy:8001
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,46 +50,76 @@ services:
       - screenshots_data:/app/screenshots
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
-  frontend:
-    build: ./frontend
+  orchestrator-legacy:
+    build: ./apps/orchestrator-legacy
     ports:
-      - "3001:3000"
+      - "8005:8001"
     env_file:
-      - ./frontend/.env
-    depends_on:
-      - backend
-    restart: unless-stopped
-
-  adk-orchestrator:
-    build: ./apps/adk-orchestrator
-    ports:
-      - "8001:8001"
-    env_file:
-      - ./backend/.env
+      - ./.env
     environment:
-      - ADK_API_URL=http://backend:8000/api/v1
-      - BACKEND_API_URL=http://backend:8000/api/v1
+      - ADK_API_URL=http://api-legacy:8000/api/v1
+      - BACKEND_API_URL=http://api-legacy:8000/api/v1
       - REDIS_URL=redis://redis:6379/0
-      - ADZUNA_APP_ID=${ADZUNA_APP_ID}
-      - ADZUNA_APP_KEY=${ADZUNA_APP_KEY}
-      - JOOBLE_API_KEY=${JOOBLE_API_KEY}
       - PYTHONPATH=/app/packages
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
-      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN}
     volumes:
       - ./packages:/app/packages:ro
     depends_on:
       - redis
-      - backend
+      - api-legacy
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
-  browser-worker:
-    build: ./apps/browser-worker
+  browser-worker-legacy:
+    build: ./apps/browser-worker-legacy
+    ports:
+      - "8006:8002"
+    environment:
+      - HEADLESS=true
+      - SESSION_DIR=/data/sessions
+    volumes:
+      - sessions:/data/sessions
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ── New TypeScript Services ─────────────────────────────────────────────────
+  api:
+    build: ./apps/api
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./.env
+    environment:
+      - DATABASE_URL=postgresql://jobblitz:jobblitz@postgres:5432/jobblitz
+      - REDIS_URL=redis://redis:6379/0
+      - API_URL=http://api:8000
+      - WEB_URL=http://web:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - uploads_data:/app/uploads
+      - screenshots_data:/app/screenshots
+    restart: unless-stopped
+
+  worker-orchestrator:
+    build: ./apps/worker-orchestrator
+    env_file:
+      - ./.env
+    environment:
+      - DATABASE_URL=postgresql://jobblitz:jobblitz@postgres:5432/jobblitz
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker-browser:
+    build: ./apps/worker-browser
     ports:
       - "8002:8002"
     environment:
@@ -103,24 +131,30 @@ services:
       - redis
     restart: unless-stopped
 
-  arq_worker:
-    build: ./backend
-    command: arq arq_worker.WorkerSettings
+  mcp-gateway:
+    build: ./apps/mcp-gateway
+    ports:
+      - "8003:8003"
     env_file:
-      - ./backend/.env
+      - ./.env
     environment:
-      - NEKO_PUBLIC_HOST=localhost
+      - DATABASE_URL=postgresql://jobblitz:jobblitz@postgres:5432/jobblitz
     depends_on:
       - postgres
       - redis
-      - backend
-    volumes:
-      - uploads_data:/app/uploads
-      - screenshots_data:/app/screenshots
-      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+
+  web:
+    build: ./apps/web
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./.env
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - api
+    restart: unless-stopped
 
 networks:
   default:

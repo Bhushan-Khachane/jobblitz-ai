@@ -1,0 +1,28 @@
+{
+  "name": "@jobblitz/worker-browser",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "build": "tsc",
+    "start": "bun dist/index.js",
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "clean": "rm -rf dist .tsbuildinfo"
+  },
+  "dependencies": {
+    "@jobblitz/core": "workspace:*",
+    "@jobblitz/browser": "workspace:*",
+    "@jobblitz/types": "workspace:*",
+    "hono": "^4.7.0",
+    "playwright": "^1.49.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  }
+}

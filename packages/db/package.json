@@ -1,0 +1,26 @@
+{
+  "name": "@jobblitz/db",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "migrate": "drizzle-kit migrate",
+    "seed": "bun run ./seed.ts",
+    "studio": "drizzle-kit studio",
+    "generate": "drizzle-kit generate",
+    "clean": "rm -rf dist .tsbuildinfo"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.40.0",
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "@jobblitz/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "build": "tsc",
+    "start": "bun dist/index.js",
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "clean": "rm -rf dist .tsbuildinfo"
+  },
+  "dependencies": {
+    "@jobblitz/core": "workspace:*",
+    "@jobblitz/db": "workspace:*",
+    "@jobblitz/types": "workspace:*",
+    "@jobblitz/auth": "workspace:*",
+    "@jobblitz/security": "workspace:*",
+    "@jobblitz/research": "workspace:*",
+    "hono": "^4.7.0",
+    "zod": "^3.24.1",
+    "bullmq": "^5.41.0",
+    "drizzle-orm": "^0.40.0",
+    "ioredis": "^5.5.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  }
+}

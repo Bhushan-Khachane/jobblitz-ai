@@ -1,0 +1,36 @@
+{
+  "name": "jobblitz-ai",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tools/*",
+    "mcp/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "biome format --write .",
+    "db:migrate": "bun run --filter=db migrate",
+    "db:seed": "bun run --filter=db seed",
+    "db:studio": "bun run --filter=db studio",
+    "db:generate": "bun run --filter=db generate",
+    "evals": "bun run --filter=evals run",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "turbo": "^2.4.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  },
+  "packageManager": "bun@1.2.0",
+  "engines": {
+    "bun": ">=1.2.0"
+  }
+}
