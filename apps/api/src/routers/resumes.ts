@@ -91,4 +91,29 @@ resumesRouter.delete("/:id", async (c) => {
   return c.json({ success: true });
 });
 
+resumesRouter.post("/:id/parse", async (c) => {
+  const user = c.get("user");
+  const id = c.req.param("id");
+
+  const [resume] = await db
+    .select()
+    .from(resumes)
+    .where(and(eq(resumes.id, id), eq(resumes.userId, user.id)))
+    .limit(1);
+  if (!resume) return c.json({ error: "Not found" }, 404);
+
+  if (!resume.parsedText) {
+    return c.json({ error: "Resume has no parsed text. Upload and parse first." }, 400);
+  }
+
+  const { enqueueProfileIngestion } = await import("../queue");
+  await enqueueProfileIngestion({
+    userId: user.id,
+    resumeText: resume.parsedText,
+    source: "upload",
+  });
+
+  return c.json({ success: true, enqueued: true });
+});
+
 export default resumesRouter;

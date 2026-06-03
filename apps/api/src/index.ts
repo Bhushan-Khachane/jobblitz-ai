@@ -8,6 +8,7 @@ import { rateLimitMiddleware } from "./middleware/rate-limit";
 import { otelMiddleware } from "./middleware/otel";
 import { errorHandler, notFoundHandler } from "./middleware/error";
 import { routers } from "./routers";
+import { startBullBoard } from "./bull-board";
 
 validateAtStartup();
 initTracer("jobblitz-api");
@@ -44,11 +45,17 @@ app.route("/api/memory", routers.memory);
 app.route("/api/observability", routers.observability);
 app.route("/api/ops", routers.ops);
 
+// Admin / queue dashboard (guarded)
+app.route("/admin", routers.admin);
+
 app.onError(errorHandler);
 app.notFound(notFoundHandler);
 
 const port = Number(process.env.PORT) || 8000;
 console.log(`[api] starting on port ${port}`);
+
+// Start Bull Board operational UI (separate Express port, proxied via /admin/board)
+startBullBoard();
 
 export default {
   port,

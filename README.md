@@ -50,13 +50,31 @@ This starts all 8 services in dependency order: Postgres (pgvector), Redis, Fast
 ```
 Frontend (Next.js 15) ──REST/SSE──> API (Hono) ──REST──> API Legacy (FastAPI)
                                       │
-                                      ├──> BullMQ ──> Worker Orchestrator (LangGraph)
-                                      │                 └──> Browser Worker (Playwright + Stagehand)
+                                      ├──> BullMQ ──> Worker Orchestrator
+                                      │                 ├─ LangGraph application flow
+                                      │                 ├─ Daily Job Hunt worker
+                                      │                 ├─ Profile Ingestion worker
+                                      │                 ├─ Compliance Filter worker
+                                      │                 └─ Coach Handoff worker
                                       │
-                                      ├──> MCP Gateway (internal tools: search, tailor, enqueue)
+                                      ├──> Browser Worker (Playwright + Stagehand)
+                                      │
+                                      ├──> MCP Gateway (internal tools)
                                       │
                                       └──> PostgreSQL (pgvector) + Redis
 ```
+
+### Backend Engine (assisted_apply-inspired)
+
+JobBlitz-AI now integrates an internal **Apply Engine** inspired by [assisted_apply](https://github.com/Bhushan-Khachane/assisted_apply.git). The engine provides:
+
+- **13 specialized AI agents** with `BaseAgent<I, O>` pattern, cost tracking, and fallback handling
+- **5 BullMQ queues**: orchestration, daily job hunt, compliance filter, coach handoff, profile ingestion
+- **Compliance layer**: Configurable rule engine for outbound WhatsApp/email safety
+- **Cost tracking**: Per-inference billing with daily burn and monthly estimates
+- **Application state machine**: Clean status transitions with validation
+
+Product-specific logic (billing, user lifecycle, app flows) remains under JobBlitz-AI namespaces.
 
 ### Key Technologies
 
@@ -125,13 +143,32 @@ Frontend (Next.js 15) ──REST/SSE──> API (Hono) ──REST──> API Leg
 
 ## Application Pipeline
 
-1. **Discovery** — Scrapers run every 2h (LinkedIn, Naukri)
-2. **Scoring** — 5-dimension AI match (skills, experience, salary, location, confidence)
-3. **Tailoring** — AI tailors resume + generates cover letter per job
-4. **Approval** (assisted mode) — User reviews and approves via dashboard
-5. **Application** — Browser worker fills forms via ATS adapters
-6. **Follow-up** — Automated email reminders after 7 days of no response
-7. **Status sync** — Portal inbox syncs interview/rejection updates
+1. **Discovery** — `HunterAgent` discovers jobs via pluggable providers (LinkedIn, Naukri, etc.) every 6h
+2. **Scoring** — `MatchScorerAgent` + `RedFlagAgent` compute fit score and risk check
+3. **Tailoring** — `ATSRewriteAgent` tailors resume + `CoverLetterAgent` generates cover letter
+4. **Coach Review** — Low-confidence tailoring triggers `CoachHandoffWorker` (4h SLA)
+5. **Approval** (assisted mode) — User reviews and approves via dashboard
+6. **Application** — Browser worker fills forms via ATS adapters
+7. **Compliance** — `ComplianceFilterWorker` gates all outbound WhatsApp/email messages
+8. **Follow-up** — Automated reminders after 7 days of no response
+9. **Status sync** — Portal inbox syncs interview/rejection updates
+
+### Agent Roster
+
+| Agent | Purpose | Status |
+|-------|---------|--------|
+| ParserAgent | Resume text → structured profile | Rule-based (LLM TODO) |
+| HunterAgent | Job discovery with provider adapters | Mock providers (real TODO) |
+| MatchScorerAgent | Embedding + rule-based fit scoring | Hybrid active |
+| GapAnalyzerAgent | Missing skills + upgrade path | Rule-based active |
+| RedFlagAgent | Scam/risk detection on JDs | Keyword heuristic active |
+| ATSRewriteAgent | Resume tailoring for ATS | Rule-based (LLM TODO) |
+| CoverLetterAgent | Cover letter generation | Template-based (LLM TODO) |
+| CompanyResearchAgent | Employer research | Perplexity integration ready |
+| CoachPrepAgent | Interview prep packs | Template-based (LLM TODO) |
+| SalaryBenchmarkAgent | Market salary data | Stub (real source TODO) |
+| ComplianceAgent | Message safety filter | Rule-based active |
+| SentimentAgent | Churn risk detection | Keyword heuristic active |
 
 ## Notifications
 

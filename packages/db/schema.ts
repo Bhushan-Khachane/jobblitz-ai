@@ -538,7 +538,7 @@ export const embeddings = pgTable(
   },
   (table) => [
     index("ix_embeddings_entity").on(table.entityType, table.entityId),
-    index("ix_embeddings_vector").using("hnsw", table.embedding),
+    index("ix_embeddings_vector").using("hnsw", table.embedding.op("vector_cosine_ops")),
   ]
 );
 
@@ -554,7 +554,7 @@ export const jobEmbeddings = pgTable(
   },
   (table) => [
     index("ix_job_embeddings_job").on(table.jobId),
-    index("ix_job_embeddings_vector").using("hnsw", table.embedding),
+    index("ix_job_embeddings_vector").using("hnsw", table.embedding.op("vector_cosine_ops")),
   ]
 );
 
@@ -571,7 +571,7 @@ export const userSkillEmbeddings = pgTable(
   },
   (table) => [
     index("ix_user_skill_embeddings_user").on(table.userId),
-    index("ix_user_skill_embeddings_vector").using("hnsw", table.embedding),
+    index("ix_user_skill_embeddings_vector").using("hnsw", table.embedding.op("vector_cosine_ops")),
   ]
 );
 
@@ -658,4 +658,93 @@ export const notificationPreferences = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index("ix_notification_prefs_user").on(table.userId)]
+);
+
+// ── Assisted Apply Engine Tables ───────────────────────────────────────────────
+
+export const coachQueueStatusEnum = pgEnum("coach_queue_status", [
+  "open",
+  "assigned",
+  "resolved",
+  "escalated",
+]);
+
+export const coachQueue = pgTable(
+  "coach_queue",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    applicationId: uuid("application_id").references(() => applications.id, { onDelete: "set null" }),
+    priority: integer("priority").default(3).notNull(),
+    triggerReason: text("trigger_reason").notNull(),
+    assignedTo: varchar("assigned_to", { length: 255 }),
+    status: coachQueueStatusEnum("status").default("open").notNull(),
+    slaDeadline: timestamp("sla_deadline", { withTimezone: true }),
+    resolutionNotes: text("resolution_notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("ix_coach_queue_user_status").on(table.userId, table.status),
+    index("ix_coach_queue_priority").on(table.status, table.priority),
+    index("ix_coach_queue_sla").on(table.slaDeadline),
+  ]
+);
+
+export const complianceLog = pgTable(
+  "compliance_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    outboundText: text("outbound_text").notNull(),
+    blocked: boolean("blocked").notNull(),
+    violations: jsonb("violations").$type<string[]>(),
+    modifiedText: text("modified_text"),
+    channel: varchar("channel", { length: 50 }).default("whatsapp").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("ix_compliance_log_user").on(table.userId, table.createdAt)]
+);
+
+export const costLog = pgTable(
+  "cost_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    engine: varchar("engine", { length: 50 }).notNull(),
+    model: varchar("model", { length: 100 }).notNull(),
+    tokensIn: integer("tokens_in"),
+    tokensOut: integer("tokens_out"),
+    costUsd: integer("cost_usd"), // stored as micro-dollars to avoid floats
+    latencyMs: integer("latency_ms"),
+    jobId: varchar("job_id", { length: 255 }),
+    queueName: varchar("queue_name", { length: 100 }),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("ix_cost_log_user").on(table.userId, table.createdAt),
+    index("ix_cost_log_engine").on(table.engine, table.createdAt),
+  ]
+);
+
+export const jobAuditLog = pgTable(
+  "job_audit_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    queueName: varchar("queue_name", { length: 100 }).notNull(),
+    jobId: varchar("job_id", { length: 255 }).notNull(),
+    status: varchar("status", { length: 50 }).notNull(),
+    payload: jsonb("payload"),
+    result: jsonb("result"),
+    error: text("error"),
+    attempts: integer("attempts").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("ix_job_audit_log_queue").on(table.queueName, table.createdAt),
+    index("ix_job_audit_log_status").on(table.status, table.createdAt),
+  ]
 );

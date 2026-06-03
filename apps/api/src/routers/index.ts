@@ -9,6 +9,7 @@ import dashboard from "./dashboard";
 import memory from "./memory";
 import observability from "./observability";
 import ops from "./ops";
+import admin from "./admin";
 
 export const routers = {
   health,
@@ -22,6 +23,7 @@ export const routers = {
   memory,
   observability,
   ops,
+  admin,
 };
 
 export type AppRouters = typeof routers;

@@ -162,6 +162,48 @@ jobsRouter.post("/:id/score", async (c) => {
   return c.json(score);
 });
 
+jobsRouter.post("/discover", async (c) => {
+  const user = c.get("user");
+  const body = await c.req.json();
+  const { keywords, location } = body;
+
+  if (!keywords) {
+    return c.json({ error: "keywords is required" }, 400);
+  }
+
+  const { hunterAgent, redFlagAgent } = await import("@jobblitz/agents");
+
+  const huntResult = await hunterAgent.execute({ keywords, location });
+
+  const discoveredJobs = [];
+  for (const listing of huntResult.jobs) {
+    const redFlag = await redFlagAgent.execute(listing.jdText);
+    if (redFlag.overallRisk === "HIGH") continue;
+
+    const [inserted] = await db
+      .insert(jobs)
+      .values({
+        userId: user.id,
+        platform: listing.source,
+        externalJobId: listing.sourceId,
+        title: listing.title,
+        company: listing.company,
+        location: listing.location,
+        description: listing.jdText,
+        skillsRequired: listing.skills,
+        applyUrl: listing.url,
+        status: "discovered",
+      })
+      .returning();
+
+    if (inserted) {
+      discoveredJobs.push(inserted);
+    }
+  }
+
+  return c.json({ jobs: discoveredJobs, cached: huntResult.cached, quotaExhausted: huntResult.quotaExhausted });
+});
+
 jobsRouter.post("/:id/embed", async (c) => {
   const user = c.get("user");
   const id = c.req.param("id");

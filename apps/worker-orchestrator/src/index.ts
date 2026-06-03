@@ -14,6 +14,14 @@ import {
   agentLatencyHistogram,
 } from "@jobblitz/observability";
 import { trace } from "@opentelemetry/api";
+import { registerDefaultCostLogger, CostTrackingService } from "@jobblitz/core";
+import {
+  createDailyJobHuntWorker,
+  createComplianceFilterWorker,
+  createCoachHandoffWorker,
+  createProfileIngestionWorker,
+  createApplicationOrchestratorWorker,
+} from "./workers";
 
 const secrets = validateSecrets(process.env);
 const db = createDatabaseClient(secrets.DATABASE_URL);
@@ -22,6 +30,55 @@ const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 
 const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
 const redisPub = new Redis(REDIS_URL);
+
+// ── Cron schedule queues (same names as API queue.ts) ──
+const dailyJobHuntQueue = new Queue("daily-job-hunt", { connection });
+const complianceFilterQueue = new Queue("compliance-filter", { connection });
+const applicationQueue = new Queue("orchestration-jobs", { connection });
+
+async function setupCronSchedules() {
+  const tz = "Asia/Kolkata";
+  try {
+    await dailyJobHuntQueue.add("hunt", {}, {
+      repeat: { pattern: "0 */6 * * *", tz },
+      removeOnComplete: 10,
+      removeOnFail: 10,
+      jobId: "cron:daily-hunt",
+    });
+    console.log("[cron] daily job hunt scheduled every 6 hours (IST)");
+  } catch (err) {
+    console.error("[cron] failed to schedule daily hunt:", err instanceof Error ? err.message : String(err));
+  }
+
+  try {
+    await complianceFilterQueue.add("batch_audit", {}, {
+      repeat: { pattern: "0 2 * * *", tz },
+      removeOnComplete: 10,
+      removeOnFail: 10,
+      jobId: "cron:compliance-batch",
+    });
+    console.log("[cron] compliance batch audit scheduled daily at 02:00 (IST)");
+  } catch (err) {
+    console.error("[cron] failed to schedule compliance batch:", err instanceof Error ? err.message : String(err));
+  }
+
+  try {
+    await applicationQueue.add("batch_tailor", {
+      type: "tailor",
+      userId: "batch",
+      jobId: "batch",
+      applicationId: "batch",
+    }, {
+      repeat: { pattern: "0 2 * * *", tz },
+      removeOnComplete: 10,
+      removeOnFail: 10,
+      jobId: "cron:tailor-batch",
+    });
+    console.log("[cron] tailor batch scheduled daily at 02:00 (IST)");
+  } catch (err) {
+    console.error("[cron] failed to schedule tailor batch:", err instanceof Error ? err.message : String(err));
+  }
+}
 
 interface ApplicationJobData {
   type: "apply" | "resume";
@@ -146,12 +203,26 @@ async function run() {
   initTracer("worker-orchestrator");
   initMetrics("worker-orchestrator");
 
+  // Wire LLM cost tracking to database
+  const costTracker = new CostTrackingService(db);
+  registerDefaultCostLogger((entry) => {
+    costTracker
+      .log({
+        engine: entry.provider,
+        model: entry.model,
+        tokensIn: entry.promptTokens,
+        tokensOut: entry.completionTokens,
+        latencyMs: entry.latencyMs,
+      })
+      .catch((err) => console.error("[cost-tracker] failed to log:", err instanceof Error ? err.message : String(err)));
+  });
+
   const graph = await createApplicationGraph({ db });
 
-  // Dedicated orchestration queue
-  const orchestrationQueue = new Queue("orchestration-jobs", { connection });
+  await setupCronSchedules();
 
-  const worker = new Worker<ApplicationJobData>(
+  // ── Legacy LangGraph application worker (preserved) ──
+  const legacyWorker = new Worker<ApplicationJobData>(
     "orchestration-jobs",
     async (job) => {
       const data = job.data;
@@ -185,7 +256,6 @@ async function run() {
           try {
             await graph.invoke(initialState, { configurable: { thread_id: threadId } });
 
-            // Graph completed successfully
             await db
               .update(schema.applications)
               .set({
@@ -231,7 +301,6 @@ async function run() {
               return;
             }
 
-            // Real failure after retries
             console.error(`[worker] fatal error for application ${data.applicationId}:`, err);
 
             await db
@@ -340,21 +409,38 @@ async function run() {
     { connection, concurrency: 3 }
   );
 
-  worker.on("completed", (job) => {
+  legacyWorker.on("completed", (job) => {
     console.log(`[worker] completed job ${job?.id}`);
   });
 
-  worker.on("failed", (job, err) => {
+  legacyWorker.on("failed", (job, err) => {
     console.error(`[worker] failed job ${job?.id}:`, err instanceof Error ? err.message : String(err));
   });
 
-  console.log("[worker-orchestrator] BullMQ worker started on queue 'orchestration-jobs'");
+  // ── New assisted_apply-inspired workers ──
+  const dailyJobHuntWorker = createDailyJobHuntWorker(connection, db);
+  const complianceFilterWorker = createComplianceFilterWorker(connection, db);
+  const coachHandoffWorker = createCoachHandoffWorker(connection, db);
+  const profileIngestionWorker = createProfileIngestionWorker(connection, db);
+  const applicationOrchestratorWorker = createApplicationOrchestratorWorker(connection, db);
+
+  const allWorkers = [
+    legacyWorker,
+    dailyJobHuntWorker,
+    complianceFilterWorker,
+    coachHandoffWorker,
+    profileIngestionWorker,
+    applicationOrchestratorWorker,
+  ];
+
+  console.log("[worker-orchestrator] All workers started");
 
   // Graceful shutdown
   async function shutdown(signal: string) {
     console.log(`[worker-orchestrator] received ${signal}, shutting down gracefully...`);
-    await worker.close();
-    await orchestrationQueue.close();
+    for (const w of allWorkers) {
+      await w.close();
+    }
     await redisPub.quit();
     await connection.quit();
     await shutdownTracer();

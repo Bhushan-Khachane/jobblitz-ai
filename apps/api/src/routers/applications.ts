@@ -166,4 +166,72 @@ applicationsRouter.post("/:id/resume", async (c) => {
   return c.json({ success: true, resumed: true });
 });
 
+applicationsRouter.post("/:id/tailor", async (c) => {
+  const user = c.get("user");
+  const id = c.req.param("id");
+
+  const [app] = await db
+    .select()
+    .from(applications)
+    .where(and(eq(applications.id, id), eq(applications.userId, user.id)))
+    .limit(1);
+  if (!app) return c.json({ error: "Not found" }, 404);
+
+  const { enqueueOrchestrationJob } = await import("../queue");
+  await enqueueOrchestrationJob({
+    type: "tailor",
+    userId: user.id,
+    jobId: app.jobId,
+    applicationId: app.id,
+    resumeId: app.resumeId ?? undefined,
+    coverLetterId: app.coverLetterId ?? undefined,
+  });
+
+  return c.json({ success: true, enqueued: true });
+});
+
+applicationsRouter.post("/:id/research", async (c) => {
+  const user = c.get("user");
+  const id = c.req.param("id");
+
+  const [app] = await db
+    .select()
+    .from(applications)
+    .where(and(eq(applications.id, id), eq(applications.userId, user.id)))
+    .limit(1);
+  if (!app) return c.json({ error: "Not found" }, 404);
+
+  const [job] = await db.select().from(schema.jobs).where(eq(schema.jobs.id, app.jobId)).limit(1);
+  if (!job) return c.json({ error: "Job not found" }, 404);
+
+  const { companyResearchAgent, salaryBenchmarkAgent } = await import("@jobblitz/agents");
+
+  const research = await companyResearchAgent.execute(job.company);
+  const benchmark = await salaryBenchmarkAgent.execute({ role: job.title, location: job.location || undefined });
+
+  return c.json({ company: research, salary: benchmark });
+});
+
+applicationsRouter.post("/:id/coach-prep", async (c) => {
+  const user = c.get("user");
+  const id = c.req.param("id");
+
+  const [app] = await db
+    .select()
+    .from(applications)
+    .where(and(eq(applications.id, id), eq(applications.userId, user.id)))
+    .limit(1);
+  if (!app) return c.json({ error: "Not found" }, 404);
+
+  const [job] = await db.select().from(schema.jobs).where(eq(schema.jobs.id, app.jobId)).limit(1);
+  const [profile] = await db.select().from(schema.profiles).where(eq(schema.profiles.userId, user.id)).limit(1);
+
+  if (!job || !profile) return c.json({ error: "Job or profile not found" }, 404);
+
+  const { coachPrepAgent } = await import("@jobblitz/agents");
+  const prep = await coachPrepAgent.execute({ companyName: job.company, jobTitle: job.title, profile: profile as never });
+
+  return c.json(prep);
+});
+
 export default applicationsRouter;

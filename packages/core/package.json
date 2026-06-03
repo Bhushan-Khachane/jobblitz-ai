@@ -18,6 +18,9 @@
     "@aws-sdk/s3-request-presigner": "^3.750.0",
     "@jobblitz/types": "workspace:*",
     "@jobblitz/db": "workspace:*",
+    "drizzle-orm": "^0.40.0",
+    "ioredis": "^5.4.1",
+    "@langchain/openai": "^0.5.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

@@ -58,4 +58,35 @@ ops.get("/metrics", async (c) => {
   });
 });
 
+ops.get("/costs", async (c) => {
+  const { createCostTrackingService } = await import("@jobblitz/core");
+  const costService = createCostTrackingService(db);
+  const daily = await costService.dailyBurn();
+  const breakdown = await costService.perEngineBreakdown();
+  const estimate = await costService.monthlyEstimate();
+  return c.json({ dailyBurnUsd: daily, engineBreakdown: breakdown, monthlyEstimateUsd: estimate });
+});
+
+ops.get("/queues", async (c) => {
+  const { applicationQueue, dailyJobHuntQueue, complianceFilterQueue, coachHandoffQueue, profileIngestionQueue } =
+    await import("../queue");
+
+  const queues = [applicationQueue, dailyJobHuntQueue, complianceFilterQueue, coachHandoffQueue, profileIngestionQueue];
+
+  const metrics = await Promise.all(
+    queues.map(async (q) => {
+      const [waiting, active, completed, failed, delayed] = await Promise.all([
+        q.getWaitingCount(),
+        q.getActiveCount(),
+        q.getCompletedCount(),
+        q.getFailedCount(),
+        q.getDelayedCount(),
+      ]);
+      return { name: q.name, waiting, active, completed, failed, delayed };
+    })
+  );
+
+  return c.json({ queues: metrics });
+});
+
 export default ops;
