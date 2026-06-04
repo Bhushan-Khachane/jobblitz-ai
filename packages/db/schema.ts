@@ -1,9 +1,11 @@
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
   pgEnum,
+  pgPolicy,
   pgTable,
   text,
   timestamp,
@@ -12,6 +14,7 @@ import {
   varchar,
   vector,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const applicationModeEnum = pgEnum("application_mode", [
   "manual",
@@ -39,6 +42,9 @@ export const applicationStatusEnum = pgEnum("application_status", [
   "accepted",
   "withdrawn",
   "skipped",
+  "quota_exceeded",
+  "portal_not_in_plan",
+  "score_below_threshold",
 ]);
 
 export const approvalStatusEnum = pgEnum("approval_status", [
@@ -64,6 +70,18 @@ export const users = pgTable("users", {
   role: varchar("role", { length: 20 }).default("user").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const plans = pgTable("plans", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 50 }).notNull(), // free, starter, pro
+  dailyApplyCap: integer("daily_apply_cap").notNull(),
+  monthlyApplyQuota: integer("monthly_apply_quota").notNull(),
+  portalAccess: text("portal_access").array().notNull(),
+  whatsappEnabled: boolean("whatsapp_enabled").default(false).notNull(),
+  coachEnabled: boolean("coach_enabled").default(false).notNull(),
+  priceInr: integer("price_inr").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const profiles = pgTable("profiles", {
@@ -126,19 +144,29 @@ export const credentials = pgTable(
   ]
 );
 
-export const resumes = pgTable("resumes", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  title: varchar("title", { length: 255 }).notNull(),
-  filePath: text("file_path").notNull(),
-  fileKey: text("file_key"),
-  parsedText: text("parsed_text"),
-  isDefault: boolean("is_default").default(false).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
+export const resumes = pgTable(
+  "resumes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 255 }).notNull(),
+    filePath: text("file_path").notNull(),
+    fileKey: text("file_key"),
+    parsedText: text("parsed_text"),
+    isDefault: boolean("is_default").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    pgPolicy("resumes_owner_policy", {
+      for: "all",
+      to: "public",
+      using: sql`${table.userId} = auth.uid()`,
+    }),
+  ]
+);
 
 export const tailoredResumes = pgTable("tailored_resumes", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -246,6 +274,11 @@ export const jobs = pgTable(
     index("ix_jobs_user_status").on(table.userId, table.status),
     index("ix_jobs_platform_extid").on(table.platform, table.externalJobId),
     index("ix_jobs_user_score").on(table.userId, table.matchScore),
+    pgPolicy("jobs_owner_policy", {
+      for: "all",
+      to: "public",
+      using: sql`${table.userId} = auth.uid()`,
+    }),
   ]
 );
 
@@ -311,7 +344,14 @@ export const applications = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [index("ix_applications_user_status").on(table.userId, table.status)]
+  (table) => [
+    index("ix_applications_user_status").on(table.userId, table.status),
+    pgPolicy("applications_owner_policy", {
+      for: "all",
+      to: "public",
+      using: sql`${table.userId} = auth.uid()`,
+    }),
+  ]
 );
 
 export const applicationRuns = pgTable(
@@ -431,6 +471,7 @@ export const approvals = pgTable(
     reason: text("reason").notNull(),
     status: approvalStatusEnum("status").default("pending").notNull(),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    whatsappMessageId: varchar("whatsapp_message_id", { length: 255 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -623,7 +664,7 @@ export const orchestrationCheckpoints = pgTable(
 export const subscriptionStatusEnum = pgEnum("subscription_status", [
   "active",
   "past_due",
-  "canceled",
+  "cancelled",
 ]);
 
 export const subscriptions = pgTable("subscriptions", {
@@ -632,13 +673,39 @@ export const subscriptions = pgTable("subscriptions", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" })
     .unique(),
-  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
-  stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
-  plan: planEnum("plan").default("free").notNull(),
+  planId: uuid("plan_id").references(() => plans.id),
   status: subscriptionStatusEnum("status").default("active").notNull(),
+  razorpaySubscriptionId: varchar("razorpay_subscription_id", { length: 255 }),
+  currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
   currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const usageCounters = pgTable(
+  "usage_counters",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    appliesCount: integer("applies_count").default(0).notNull(),
+    discoveriesCount: integer("discoveries_count").default(0).notNull(),
+  },
+  (table) => [uniqueIndex("uq_usage_counters_user_date").on(table.userId, table.date)]
+);
+
+export const interviewCallbacks = pgTable("interview_callbacks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  applicationId: uuid("application_id").references(() => applications.id, { onDelete: "set null" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  source: varchar("source", { length: 50 }).notNull(), // email|phone|linkedin
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const notificationPreferences = pgTable(

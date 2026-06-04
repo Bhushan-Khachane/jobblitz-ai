@@ -10,6 +10,8 @@ import memory from "./memory";
 import observability from "./observability";
 import ops from "./ops";
 import admin from "./admin";
+import billing from "./billing";
+import webhooks from "./webhooks";
 
 export const routers = {
   health,
@@ -24,6 +26,8 @@ export const routers = {
   observability,
   ops,
   admin,
+  billing,
+  webhooks,
 };
 
 export type AppRouters = typeof routers;

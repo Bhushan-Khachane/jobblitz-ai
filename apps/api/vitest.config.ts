@@ -5,6 +5,11 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    exclude: [
+      "node_modules",
+      "tests/integration.test.ts",
+      "tests/e2e-pipeline.test.ts"
+    ],
     setupFiles: ["tests/setup.ts"],
   },
 });

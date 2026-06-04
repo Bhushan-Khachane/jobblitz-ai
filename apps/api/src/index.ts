@@ -44,6 +44,7 @@ app.route("/api/dashboard", routers.dashboard);
 app.route("/api/memory", routers.memory);
 app.route("/api/observability", routers.observability);
 app.route("/api/ops", routers.ops);
+app.route("/api/billing", routers.billing);
 
 // Admin / queue dashboard (guarded)
 app.route("/admin", routers.admin);

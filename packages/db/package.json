@@ -10,6 +10,7 @@
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
     "migrate": "drizzle-kit migrate",
+    "migrate:saas": "drizzle-kit push",
     "seed": "bun run ./seed.ts",
     "studio": "drizzle-kit studio",
     "generate": "drizzle-kit generate",

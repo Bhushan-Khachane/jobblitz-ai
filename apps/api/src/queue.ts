@@ -1,7 +1,9 @@
 import { Queue } from "bullmq";
 import Redis from "ioredis";
+import { getUserPlan } from "@jobblitz/core";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const WORKER_MODE = process.env.WORKER_MODE || "local";
 
 const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
 
@@ -29,24 +31,82 @@ export interface OrchestrationJobData {
   coverLetterId?: string | undefined;
 }
 
+async function getJobPriority(userId: string): Promise<number> {
+  const plan = await getUserPlan(userId);
+  if (!plan) return 20;
+
+  switch (plan.name) {
+    case "pro": return 1;
+    case "starter": return 10;
+    case "free":
+    default: return 20;
+  }
+}
+
+// CloudRunDispatcher implementation for Task 5
+export async function dispatchToCloudRun(_jobName: string, payload: any) {
+  const PROJECT = process.env.GCP_PROJECT;
+  const REGION = process.env.GCP_REGION || "us-central1";
+  const JOB_NAME = process.env.CLOUD_RUN_JOB_NAME || "jobblitz-browser-worker";
+
+  const url = `https://run.googleapis.com/v2/projects/${PROJECT}/locations/${REGION}/jobs/${JOB_NAME}:run`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      // Identity token would be added here in production via metadata server
+    },
+    body: JSON.stringify({
+      overrides: {
+        containerOverrides: [
+          {
+            env: [
+              { name: "JOB_PAYLOAD", value: JSON.stringify(payload) }
+            ]
+          }
+        ]
+      }
+    })
+  });
+
+  return response.json();
+}
+
 export async function enqueueApplicationJob(data: ApplicationJobData): Promise<string> {
+  if (WORKER_MODE === "cloud-run" && data.type === "apply") {
+    await dispatchToCloudRun("apply", data);
+    return `cloud-run-${data.applicationId}`;
+  }
+
+  const priority = await getJobPriority(data.userId);
+
   const job = await applicationQueue.add(data.type, data, {
     jobId: `${data.type}-${data.applicationId}`,
     removeOnComplete: 10,
     removeOnFail: 10,
     attempts: 3,
     backoff: { type: "exponential", delay: 5000 },
+    priority,
   });
   return job.id ?? data.applicationId;
 }
 
 export async function enqueueOrchestrationJob(data: OrchestrationJobData): Promise<string> {
+  if (WORKER_MODE === "cloud-run" && data.type === "apply") {
+    await dispatchToCloudRun("apply", data);
+    return `cloud-run-${data.applicationId}`;
+  }
+
+  const priority = await getJobPriority(data.userId);
+
   const job = await applicationQueue.add(data.type, data, {
     jobId: `${data.type}-${data.applicationId}`,
     removeOnComplete: 10,
     removeOnFail: 10,
     attempts: 3,
     backoff: { type: "exponential", delay: 5000 },
+    priority,
   });
   return job.id ?? data.applicationId;
 }

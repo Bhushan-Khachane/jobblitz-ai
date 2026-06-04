@@ -16,6 +16,7 @@
     "@bull-board/api": "^7.1.5",
     "@bull-board/express": "^7.1.5",
     "@bull-board/ui": "^7.1.5",
+    "@hono/zod-validator": "^0.8.0",
     "@jobblitz/auth": "workspace:*",
     "@jobblitz/core": "workspace:*",
     "@jobblitz/db": "workspace:*",
