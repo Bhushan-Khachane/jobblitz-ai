@@ -8,3 +8,4 @@ export * from "./application";
 export * from "./embeddings";
 export * from "./notifications/whatsapp";
 export * from "./notifications/slack";
+export * from "./quota";

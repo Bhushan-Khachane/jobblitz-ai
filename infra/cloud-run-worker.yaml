@@ -1,0 +1,38 @@
+apiVersion: run.googleapis.com/v2
+kind: Job
+metadata:
+  name: jobblitz-browser-worker
+  labels:
+    cloud.googleapis.com/location: us-central1
+spec:
+  template:
+    spec:
+      containers:
+      - image: gcr.io/PROJECT_ID/jobblitz-browser-worker
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+        env:
+        - name: DATABASE_URL
+          value_source:
+            secret_key_ref:
+              secret: DATABASE_URL
+              version: latest
+        - name: REDIS_URL
+          value_source:
+            secret_key_ref:
+              secret: REDIS_URL
+              version: latest
+        - name: OPENAI_API_KEY
+          value_source:
+            secret_key_ref:
+              secret: OPENAI_API_KEY
+              version: latest
+        - name: GEMINI_API_KEY
+          value_source:
+            secret_key_ref:
+              secret: GEMINI_API_KEY
+              version: latest
+      maxRetries: 2
+      timeoutSeconds: 300

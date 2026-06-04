@@ -3,14 +3,15 @@ import { eq } from "drizzle-orm";
 import { schema } from "@jobblitz/db";
 import type { DatabaseClient } from "@jobblitz/db";
 
-const { subscriptions } = schema;
+const { subscriptions, plans } = schema;
 
 // ── Plan limits ─────────────────────────────────────────────────────────────
 
 const PLAN_LIMITS: Record<string, number | null> = {
   free: 10,
-  pro: 50,
-  elite: null, // unlimited
+  starter: 50,
+  pro: 100,
+  unlimited: null, // unlimited
 };
 
 export function getDailyLimitFromPlan(plan: string): number | null {
@@ -22,12 +23,13 @@ export async function getUserPlanDailyLimit(
   userId: string,
 ): Promise<number | null> {
   const [sub] = await db
-    .select({ plan: subscriptions.plan })
+    .select({ planName: plans.name })
     .from(subscriptions)
+    .innerJoin(plans, eq(subscriptions.planId, plans.id))
     .where(eq(subscriptions.userId, userId))
     .limit(1);
 
-  return getDailyLimitFromPlan(sub?.plan ?? "free");
+  return getDailyLimitFromPlan(sub?.planName ?? "free");
 }
 
 // ── Application rate limit (DB-backed) ──────────────────────────────────────
